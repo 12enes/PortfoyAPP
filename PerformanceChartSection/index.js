@@ -1,0 +1,172 @@
+import React, { useState, useCallback, useMemo, useRef } from 'react';
+import { View, StyleSheet, TouchableOpacity, Text, Animated } from 'react-native';
+import ChartCanvas from './ChartCanvas';
+import GestureOverlay from './GestureOverlay';
+import HeaderSection from './HeaderSection';
+import CrosshairLayer from './CrosshairLayer';
+import { formatDate } from './utils/formatter';
+
+export default function PerformanceChartSection({
+  data, liveValue, liveChange, liveChangeAmount, timeRanges, selectedRange, onRangeSelect, language, currency, locale
+}) {
+  const [dimensions, setDimensions] = useState({ width: 0, height: 220 });
+  
+  // Dokunulan noktanın verisini tutar
+  const [activePoint, setActivePoint] = useState(null);
+
+  // 1. ADIM: MATEMATİK VE KOORDİNAT HARİTASI
+  // Bu motor, grafikteki her bir günün/saatin ekranın tam olarak kaçıncı pikseline denk geldiğini hesaplar.
+  // 1. ADIM: MATEMATİK VE KOORDİNAT HARİTASI
+  const chartCoordinates = useMemo(() => {
+    if (!data || data.length < 2 || dimensions.width === 0 || dimensions.height === 0) {
+      return { xPositions: [], yPositions: [] };
+    }
+
+    const maxVal = Math.max(...data.map(d => d.value));
+    const minVal = Math.min(...data.map(d => d.value));
+    const range = maxVal - minVal || 1;
+
+    // AYNI BÜYÜYÜ HARİTAYA DA EKLİYORUZ (Lazer ile çizgi tam üst üste otursun diye)
+    const padding = range * 0.20; 
+    const paddedMax = maxVal + padding;
+    const paddedMin = minVal - (padding / 2);
+    const paddedRange = paddedMax - paddedMin || 1;
+
+    const xPositions = [];
+    const yPositions = [];
+
+    data.forEach((d, i) => {
+      const x = (i / (data.length - 1)) * dimensions.width;
+      const y = dimensions.height - ((d.value - paddedMin) / paddedRange) * dimensions.height;
+      
+      xPositions.push(x);
+      yPositions.push(y);
+    });
+
+    return { xPositions, yPositions };
+  }, [data, dimensions]);
+
+  // ÇÖKMEZ MİMARİ: React Native'in saf ve donanımsal (Native Driver) animasyon değeri
+  const activeIndexAnim = useRef(new Animated.Value(-1)).current;
+
+  // Sensörden (GestureOverlay) gelen sinyali yakalayan fonksiyon
+  // DRONE'UN MOTORLARI: X (Sağ-Sol), Y (Aşağı-Yukarı) ve Görünürlük (Opaklık)
+  // DRONE'UN MOTORLARI
+  // DRONE'UN MOTORLARI
+  const crosshairX = useRef(new Animated.Value(0)).current;
+  const crosshairY = useRef(new Animated.Value(0)).current;
+  const crosshairOpacity = useRef(new Animated.Value(0)).current;
+
+  const handlePointSelect = useCallback((point, index, fingerX) => {
+    setActivePoint(point);
+    
+    if (index >= 0 && chartCoordinates.xPositions.length > 0) {
+      // 1. LAZERİN YATAY HAREKETİ (X Ekseninde Yağ Gibi Kayma)
+      // Çizgiyi veri noktasına değil, DOĞRUDAN parmağın pikseline eşitliyoruz
+      const minX = chartCoordinates.xPositions[0];
+      const maxX = chartCoordinates.xPositions[chartCoordinates.xPositions.length - 1];
+      // Parmağın ekran dışına çıkmasını engelliyoruz
+      const safeFingerX = Math.max(minX, Math.min(fingerX, maxX)); 
+      
+      crosshairX.setValue(safeFingerX);
+
+      // 2. NOKTANIN YÜKSEKLİĞİ (Y Ekseninde İp Üzerinde Kayma)
+      let interpolatedY = chartCoordinates.yPositions[index];
+
+      if (chartCoordinates.xPositions.length > 1) {
+        // Parmağın hangi iki gün/nokta arasında olduğunu buluyoruz
+        const step = dimensions.width / (data.length - 1);
+        let leftIdx = Math.floor(safeFingerX / step);
+        let rightIdx = leftIdx + 1;
+
+        leftIdx = Math.max(0, Math.min(leftIdx, data.length - 1));
+        rightIdx = Math.max(0, Math.min(rightIdx, data.length - 1));
+
+        if (leftIdx !== rightIdx) {
+          const x0 = chartCoordinates.xPositions[leftIdx];
+          const x1 = chartCoordinates.xPositions[rightIdx];
+          const y0 = chartCoordinates.yPositions[leftIdx];
+          const y1 = chartCoordinates.yPositions[rightIdx];
+
+          // MATEMATİK: İki nokta arasındaki yokuşta noktanın tam olarak nerede durması gerektiğini hesaplar
+          interpolatedY = y0 + ((safeFingerX - x0) * (y1 - y0)) / (x1 - x0);
+        }
+      }
+
+      crosshairY.setValue(interpolatedY);
+      Animated.timing(crosshairOpacity, { toValue: 1, duration: 50, useNativeDriver: true }).start();
+    } else {
+      Animated.timing(crosshairOpacity, { toValue: 0, duration: 150, useNativeDriver: true }).start();
+    }
+  }, [chartCoordinates, dimensions.width, data, crosshairX, crosshairY, crosshairOpacity]);
+
+  return (
+    <View style={styles.container}>
+      <HeaderSection 
+        activePoint={activePoint} 
+        liveValue={liveValue} 
+        liveChange={liveChange} 
+        currency={currency} 
+        locale={locale} 
+      />
+
+      <View 
+        style={styles.chartContainer}
+        onLayout={(e) => {
+          setDimensions({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height });
+        }}
+      >
+        {dimensions.width > 0 && (
+          <>
+            {/* 1. KATMAN (En Arka): Sabit Grafik Çizgisi */}
+            <ChartCanvas 
+              data={data} 
+              width={dimensions.width} 
+              height={dimensions.height} 
+              lineColor="#00FFA3" 
+            />
+            
+            {/* 2. KATMAN (Orta): Drone/Lazer İşaretleyici */}
+            <CrosshairLayer 
+              xAnim={crosshairX} 
+              yAnim={crosshairY} 
+              opacityAnim={crosshairOpacity} 
+              height={dimensions.height} 
+              color={liveChange >= 0 ? '#00FFA3' : '#FF4D4D'} 
+              dateText={activePoint ? formatDate(activePoint.date, locale) : ''}
+            />
+
+            {/* 3. KATMAN (En Ön): Görünmez Dokunmatik Sensör */}
+            <GestureOverlay 
+              data={data} 
+              width={dimensions.width} 
+              onPointSelect={handlePointSelect} 
+            />
+          </>
+        )}
+      </View>
+
+      <View style={styles.timeFilterContainer}>
+        {timeRanges.map(range => (
+          <TouchableOpacity 
+            key={range} 
+            style={[styles.timeBtn, selectedRange === range && styles.timeBtnActive]}
+            onPress={() => onRangeSelect(range)}
+          >
+            <Text style={[styles.timeText, selectedRange === range && styles.timeTextActive]}>{range}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { width: '100%', paddingVertical: 10 },
+  chartContainer: { width: '100%', height: 220, marginTop: 20 },
+  timeFilterContainer: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, marginTop: 20 },
+  timeBtn: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 12 },
+  timeBtnActive: { backgroundColor: '#00FFA3' },
+  timeText: { color: '#8A919E', fontSize: 12, fontWeight: 'bold' },
+  timeTextActive: { color: '#131313', fontWeight: '900' }
+});
