@@ -51,12 +51,12 @@ export const MarketScreen = ({
           
           {marketTabMode === 'GRID' && (
             <>
-              <View style={{paddingHorizontal: 25, marginBottom: 15}}><Text style={{color: COLORS.primary, fontSize: 10, fontWeight: '800', letterSpacing: 2}}>{t('marketPulse')}</Text></View>
+              <View style={{paddingHorizontal: 25, marginBottom: 15}}><Text style={{color: COLORS.textSub, fontSize: 11, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase'}}>{t('marketPulse')}</Text></View>
               <FlatList
                 key="market-grid"
                 data={watchlist || []} 
                 keyExtractor={item => item.id} 
-                numColumns={3} 
+                numColumns={2} 
                 renderItem={renderGridItem} 
                 contentContainerStyle={{ paddingHorizontal: 15, paddingBottom: 120 }}
                 refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefreshMarket} tintColor={COLORS.primary} colors={[COLORS.primary]} />}
@@ -108,7 +108,7 @@ export const MarketScreen = ({
                       key={`custom-list-detail-${selectedListId}`}
                       data={currentCustomList?.assetIds || []} 
                       keyExtractor={item => item} 
-                      numColumns={3} 
+                      numColumns={2} 
                       renderItem={renderGridItem} 
                       contentContainerStyle={{ paddingHorizontal: 15, paddingBottom: 120 }}
                       ListEmptyComponent={<View style={styles.emptyMarketContainer}><Text style={styles.emptyMarketText}>{t('emptyList')}</Text></View>}

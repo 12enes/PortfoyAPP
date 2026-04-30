@@ -229,6 +229,18 @@ export default function App() {
   const profitScale = useRef(new Animated.Value(1)).current;
   const pagerRef = useRef(null);
   const pageScrollPos = useRef(new Animated.Value(0)).current;
+  const fabScale = useRef(new Animated.Value(1)).current;
+  const portfolioOpacity = pageScrollPos.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
+  const marketOpacity = pageScrollPos.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(fabScale, { toValue: 0.98, duration: 2000, useNativeDriver: true }),
+        Animated.timing(fabScale, { toValue: 1, duration: 2000, useNativeDriver: true }),
+      ])
+    ).start();
+  }, []);
   
   const [marketTabMode, setMarketTabMode] = useState('GRID'); 
   const [customLists, setCustomLists] = useState([]); 
@@ -596,30 +608,33 @@ export default function App() {
     const isProfit = pct > 0; const isLoss = pct < 0;
     const changeColor = isProfit ? COLORS.primary : (isLoss ? COLORS.error : COLORS.textSub);
     const arrowIcon = isProfit ? 'arrow-upward' : (isLoss ? 'arrow-downward' : 'remove');
-    const flashColor = flashAnim.interpolate({ inputRange: [0, 1], outputRange: ['transparent', isProfit ? 'rgba(0, 255, 163, 0.15)' : 'rgba(255, 77, 77, 0.15)'] });
 
     return (
       <AnimatedTouchableOpacity 
         style={[styles.gridCard, isMarketEditMode && styles.gridCardEditMode, isMarketEditMode && wiggleStyle]} 
         activeOpacity={0.7} 
         onPress={() => { if (!isMarketEditMode && marketTabMode === 'GRID') { setSelectedAssetInfo(item); setSelectedAssetId(item.id); setDetailModalVisible(true); } }}
-        onLongPress={() => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); setIsMarketEditMode(true); }}
+        onLongPress={() => { if (marketTabMode === 'GRID') setIsMarketEditMode(true); }}
       >
-        <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: flashColor, borderRadius: 16 }]} pointerEvents="none" />
+        <Text style={styles.gridSymbol} numberOfLines={1}>{item.symbol || item.name}</Text>
+        <Text style={styles.gridPrice}>
+          {cPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <MaterialIcons name={arrowIcon} size={12} color={changeColor} style={{ marginRight: 2 }} />
+          <Text style={[styles.gridChange, { color: changeColor }]}>
+            {Math.abs(pct).toFixed(2)}%
+          </Text>
+        </View>
+
         {isMarketEditMode && (
-          <TouchableOpacity style={styles.deleteBadge} onPress={() => marketTabMode === 'GRID' ? removeWatchlistAsset(item.id) : removeCustomListAsset(item.name)}>
+          <TouchableOpacity 
+            style={{ position: 'absolute', top: -8, right: -8, backgroundColor: COLORS.error, borderRadius: 12, padding: 2 }}
+            onPress={() => marketTabMode === 'GRID' ? removeWatchlistAsset(item.id) : removeCustomListAsset(item.name)}
+          >
              <MaterialIcons name="close" size={14} color="#FFF" />
           </TouchableOpacity>
         )}
-        <Text style={styles.gridName} numberOfLines={1}>{item.name}</Text>
-        <View style={styles.gridPriceContainer}>
-           <Text style={styles.gridPricePrefix}>{getCurrencySymbol(item.type || assetType)}</Text>
-           <Text style={styles.gridPrice} numberOfLines={1} adjustsFontSizeToFit>{cPrice ? cPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--'}</Text>
-        </View>
-        <View style={styles.gridChangeContainer}>
-           <MaterialIcons name={arrowIcon} size={14} color={changeColor} />
-           <Text style={[styles.gridChangePct, { color: changeColor }]}>{Math.abs(pct).toFixed(2)}%</Text>
-        </View>
       </AnimatedTouchableOpacity>
     );
   };
@@ -707,36 +722,51 @@ export default function App() {
 
       <View style={styles.bottomNavContainer}>
         <View style={styles.bottomNav}>
-          <TouchableOpacity style={styles.navItem} onPress={() => pagerRef.current?.setPage(0)}>
-            <View>
-              <MaterialIcons name="query-stats" size={26} color={COLORS.textSub} />
-              <Animated.View style={[StyleSheet.absoluteFill, {alignItems: 'center', justifyContent: 'center'}, {opacity: pageScrollPos.interpolate({inputRange: [0, 1], outputRange: [1, 0]})}]} pointerEvents="none">
-                <MaterialIcons name="query-stats" size={26} color={COLORS.primary} />
+          <TouchableOpacity 
+            style={styles.navItem} 
+            onPress={() => pagerRef.current?.setPage(0)}
+            activeOpacity={0.7}
+          >
+            <View style={{ alignItems: 'center' }}>
+              <MaterialIcons name="business-center" size={24} color="#8A8A9A" />
+              <Animated.View style={[StyleSheet.absoluteFill, { alignItems: 'center', opacity: portfolioOpacity }]} pointerEvents="none">
+                <MaterialIcons name="business-center" size={24} color="#FFFFFF" style={{ shadowColor: '#FFF', shadowOpacity: 0.3, shadowRadius: 5 }} />
               </Animated.View>
             </View>
-            <View>
-              <Text style={styles.navText}>{t('portfolio')}</Text>
-              <Animated.View style={[{position: 'absolute', top: 0, left: 0, right: 0}, {opacity: pageScrollPos.interpolate({inputRange: [0, 1], outputRange: [1, 0]})}]} pointerEvents="none">
-                <Text style={[styles.navText, {color: COLORS.primary}]}>{t('portfolio')}</Text>
+            <View style={{ marginTop: 4, alignItems: 'center', width: '100%' }}>
+              <Text style={styles.navText} numberOfLines={1}>{lang === 'tr' ? 'PORTFÖY' : 'PORTFOLIO'}</Text>
+              <Animated.View style={[{ position: 'absolute', top: 0, left: 0, right: 0, alignItems: 'center' }, { opacity: portfolioOpacity }]} pointerEvents="none">
+                <Text style={[styles.navText, { color: '#FFFFFF', shadowColor: '#FFF', shadowOpacity: 0.2, shadowRadius: 3 }]} numberOfLines={1}>{lang === 'tr' ? 'PORTFÖY' : 'PORTFOLIO'}</Text>
               </Animated.View>
             </View>
           </TouchableOpacity>
           
-          <TouchableOpacity style={styles.navItemCenter} onPress={handleCenterButton}>
-            <View style={styles.navItemCenterInner}><MaterialIcons name="add" size={34} color={theme === 'dark' ? '#0A0A0C' : '#FFFFFF'} /></View>
+          <TouchableOpacity 
+            style={styles.navItemCenter} 
+            onPress={handleCenterButton}
+            activeOpacity={0.8}
+          >
+            <Animated.View style={[styles.navItemCenterInner, { transform: [{ scale: fabScale }] }]}>
+              <View style={[StyleSheet.absoluteFill, { borderRadius: 30, backgroundColor: 'rgba(255, 255, 255, 0.05)' }]} />
+              <MaterialIcons name="add" size={32} color="#FFFFFF" style={{ shadowColor: '#FFF', shadowOpacity: 0.2, shadowRadius: 10 }} />
+            </Animated.View>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.navItem} onPress={() => { pagerRef.current?.setPage(1); setIsMarketEditMode(false); }}>
-            <View>
-              <MaterialIcons name="trending-up" size={26} color={COLORS.textSub} />
-              <Animated.View style={[StyleSheet.absoluteFill, {alignItems: 'center', justifyContent: 'center'}, {opacity: pageScrollPos.interpolate({inputRange: [0, 1], outputRange: [0, 1]})}]} pointerEvents="none">
-                <MaterialIcons name="trending-up" size={26} color={COLORS.primary} />
+          <TouchableOpacity 
+            style={styles.navItem} 
+            onPress={() => { pagerRef.current?.setPage(1); setIsMarketEditMode(false); }}
+            activeOpacity={0.7}
+          >
+            <View style={{ alignItems: 'center' }}>
+              <MaterialIcons name="trending-up" size={24} color="#8A8A9A" />
+              <Animated.View style={[StyleSheet.absoluteFill, { alignItems: 'center', opacity: marketOpacity }]} pointerEvents="none">
+                <MaterialIcons name="trending-up" size={24} color="#FFFFFF" style={{ shadowColor: '#FFF', shadowOpacity: 0.3, shadowRadius: 5 }} />
               </Animated.View>
             </View>
-            <View>
-              <Text style={styles.navText}>{t('market')}</Text>
-              <Animated.View style={[{position: 'absolute', top: 0, left: 0, right: 0}, {opacity: pageScrollPos.interpolate({inputRange: [0, 1], outputRange: [0, 1]})}]} pointerEvents="none">
-                <Text style={[styles.navText, {color: COLORS.primary}]}>{t('market')}</Text>
+            <View style={{ marginTop: 4, alignItems: 'center', width: '100%' }}>
+              <Text style={styles.navText} numberOfLines={1}>{lang === 'tr' ? 'PİYASA' : 'MARKET'}</Text>
+              <Animated.View style={[{ position: 'absolute', top: 0, left: 0, right: 0, alignItems: 'center' }, { opacity: marketOpacity }]} pointerEvents="none">
+                <Text style={[styles.navText, { color: '#FFFFFF', shadowColor: '#FFF', shadowOpacity: 0.2, shadowRadius: 3 }]} numberOfLines={1}>{lang === 'tr' ? 'PİYASA' : 'MARKET'}</Text>
               </Animated.View>
             </View>
           </TouchableOpacity>
@@ -908,18 +938,18 @@ export default function App() {
 
 const getStyles = (COLORS) => StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bg },
-  topHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 25, paddingTop: 8, paddingBottom: 8 },
+  topHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 25, paddingTop: 15, paddingBottom: 20 },
   headerProfile: { flexDirection: 'row', alignItems: 'center' },
   avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
   brandText: { color: COLORS.textMain, fontSize: 18, fontWeight: '800', letterSpacing: 1.5 },
   headerIcons: { flexDirection: 'row', alignItems: 'center' },
   pageTitle: { color: COLORS.textMain, fontSize: 32, fontWeight: '900', letterSpacing: -0.5 },
   
-  headerTabSwitcher: { flexDirection: 'row', backgroundColor: COLORS.surfaceHigh, borderRadius: 12, padding: 4, flex: 1, marginRight: 20 },
+  headerTabSwitcher: { flexDirection: 'row', backgroundColor: '#16161A', borderRadius: 12, padding: 4, width: '65%' },
   headerTab: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8 },
-  headerTabActive: { backgroundColor: COLORS.primary },
-  headerTabText: { color: COLORS.textSub, fontWeight: 'bold', fontSize: 13 },
-  headerTabTextActive: { color: COLORS.bg, fontWeight: '900' },
+  headerTabActive: { backgroundColor: '#2A2A35' },
+  headerTabText: { color: '#8A8A9A', fontWeight: '700', fontSize: 13 },
+  headerTabTextActive: { color: '#FFFFFF' },
   
   performanceContainer: { marginBottom: 25 },
   perfLabel: { color: COLORS.textSub, fontSize: 12, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 5 },
@@ -994,12 +1024,12 @@ const getStyles = (COLORS) => StyleSheet.create({
   
   emptyText: { textAlign: 'center', marginTop: 20, marginBottom: 20, color: COLORS.textSub, fontSize: 14, fontStyle: 'italic' },
   
-  bottomNavContainer: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: COLORS.bottomNavBg, borderTopWidth: 1, borderTopColor: COLORS.border, paddingBottom: 25, paddingTop: 10 },
-  bottomNav: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 40 },
-  navItem: { alignItems: 'center', justifyContent: 'center', width: 60 },
-  navText: { fontSize: 10, color: COLORS.textSub, fontWeight: '800', marginTop: 5, textTransform: 'uppercase' },
-  navItemCenter: { marginTop: -30, alignItems: 'center', justifyContent: 'center' },
-  navItemCenterInner: { width: 56, height: 56, borderRadius: 28, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center', elevation: 10, shadowColor: COLORS.primary, shadowOpacity: 0.5, shadowRadius: 10, shadowOffset: { width: 0, height: 0 } },
+  bottomNavContainer: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(10, 10, 12, 0.85)', borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.08)', paddingBottom: 12, paddingTop: 8 },
+  bottomNav: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 50 },
+  navItem: { alignItems: 'center', justifyContent: 'center', minWidth: 80 },
+  navText: { fontSize: 10, color: '#8A8A9A', fontWeight: '600', marginTop: 2, letterSpacing: 0.5 },
+  navItemCenter: { marginTop: -12, alignItems: 'center', justifyContent: 'center' },
+  navItemCenterInner: { width: 60, height: 60, borderRadius: 30, backgroundColor: 'rgba(255, 255, 255, 0.05)', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.1)', shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
   
   modalBox: { backgroundColor: COLORS.surface, padding: 25, paddingTop: 5, paddingBottom: 40, borderTopLeftRadius: 30, borderTopRightRadius: 30, zIndex: 2 },
   modalTitle: { color: COLORS.textMain, fontSize: 20, fontWeight: '900', marginBottom: 20 },
@@ -1036,7 +1066,10 @@ const getStyles = (COLORS) => StyleSheet.create({
   smartFeedbackBox: { backgroundColor: COLORS.primarySoft, paddingVertical: 10, paddingHorizontal: 15, borderRadius: 12, flexDirection: 'row', alignItems: 'center', alignSelf: 'center', marginBottom: 20 },
   smartFeedbackText: { color: COLORS.primary, fontSize: 14, fontWeight: 'bold' },
 
-  gridCard: { width: (SCREEN_WIDTH - 50 - 30) / 3, aspectRatio: 1, backgroundColor: COLORS.surfaceHigh, borderRadius: 16, padding: 12, marginHorizontal: 5, marginBottom: 10, justifyContent: 'space-between', position: 'relative' },
+  gridCard: { flex: 1, backgroundColor: '#16161A', margin: 6, borderRadius: 16, padding: 14, alignItems: 'flex-start', borderWidth: 1, borderColor: '#2A2A35' },
+  gridSymbol: { color: '#FFFFFF', fontSize: 13, fontWeight: 'bold', marginBottom: 8 },
+  gridPrice: { color: '#FFFFFF', fontSize: 18, fontWeight: 'bold', marginBottom: 12 },
+  gridChange: { fontSize: 12, fontWeight: '600' },
   gridCardEditMode: { borderWidth: 1.5, borderColor: COLORS.error },
   gridName: { color: COLORS.textMain, fontSize: 14, fontWeight: 'bold' },
   gridPriceContainer: { alignItems: 'flex-start' },

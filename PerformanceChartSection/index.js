@@ -7,7 +7,7 @@ import CrosshairLayer from './CrosshairLayer';
 import { formatDate } from './utils/formatter';
 
 export default function PerformanceChartSection({
-  data, liveValue, liveChange, liveChangeAmount, timeRanges, selectedRange, onRangeSelect, language, currency, locale
+  data, liveValue, liveChange, liveChangeAmount, language, currency, locale
 }) {
   const [dimensions, setDimensions] = useState({ width: 0, height: 220 });
   
@@ -146,17 +146,7 @@ export default function PerformanceChartSection({
         )}
       </View>
 
-      <View style={styles.timeFilterContainer}>
-        {timeRanges.map(range => (
-          <TouchableOpacity 
-            key={range} 
-            style={[styles.timeBtn, selectedRange === range && styles.timeBtnActive]}
-            onPress={() => onRangeSelect(range)}
-          >
-            <Text style={[styles.timeText, selectedRange === range && styles.timeTextActive]}>{range}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+
     </View>
   );
 }
@@ -164,9 +154,5 @@ export default function PerformanceChartSection({
 const styles = StyleSheet.create({
   container: { width: '100%', paddingVertical: 10 },
   chartContainer: { width: '100%', height: 220, marginTop: 20 },
-  timeFilterContainer: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, marginTop: 20 },
-  timeBtn: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 12 },
-  timeBtnActive: { backgroundColor: '#00E87A' },
-  timeText: { color: '#8A919E', fontSize: 12, fontWeight: 'bold' },
-  timeTextActive: { color: '#0A0A0C', fontWeight: '900' }
+  timeFilterContainer: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, marginTop: 20 }
 });
