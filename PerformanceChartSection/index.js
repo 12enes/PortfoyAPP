@@ -166,7 +166,7 @@ const styles = StyleSheet.create({
   chartContainer: { width: '100%', height: 220, marginTop: 20 },
   timeFilterContainer: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, marginTop: 20 },
   timeBtn: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 12 },
-  timeBtnActive: { backgroundColor: '#00FFA3' },
+  timeBtnActive: { backgroundColor: '#00E87A' },
   timeText: { color: '#8A919E', fontSize: 12, fontWeight: 'bold' },
-  timeTextActive: { color: '#131313', fontWeight: '900' }
+  timeTextActive: { color: '#0A0A0C', fontWeight: '900' }
 });

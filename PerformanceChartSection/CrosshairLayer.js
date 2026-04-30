@@ -65,7 +65,7 @@ const styles = StyleSheet.create({
     height: DOT_SIZE,
     borderRadius: DOT_SIZE / 2,
     borderWidth: 2.5,
-    backgroundColor: '#131313', 
+    backgroundColor: '#0A0A0C', 
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',

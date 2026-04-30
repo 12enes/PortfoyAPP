@@ -1,0 +1,159 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Alert } from 'react-native';
+
+export const usePortfolio = (deps) => {
+  const {
+    activeTab, primaryInput, buyPrice, selectedSearchAsset, portfolio, watchlist,
+    customLists, selectedListId, assetType, note, inputMode,
+    selectedAssetId, currentPriceInput, sellQuantityInput, usdToTryRate,
+    setPortfolio, setWatchlist, setCashBalance, setPriceHistory,
+    saveData, saveLists, logTransaction, resetAddModal,
+    setModalVisible, setSellModalVisible, setDetailModalVisible,
+    setPrimaryInput, setBuyPrice, setNote, setSellQuantityInput, setCurrentPriceInput,
+    t, MarketService
+  } = deps;
+
+  const addAsset = async () => {
+    if (!selectedSearchAsset || !buyPrice || !primaryInput) { 
+      Alert.alert(t('alertWarning'), t('alertFill')); 
+      return; 
+    }
+    
+    const numInput = parseFloat(primaryInput.toString().replace(',', '.')) || 0;
+    const numPrice = parseFloat(buyPrice.toString().replace(',', '.')) || 0;
+
+    let calculatedQty = 0;
+    if (inputMode === 'AMOUNT') { 
+      calculatedQty = numPrice > 0 ? (numInput / numPrice) : 0; 
+    } else { 
+      calculatedQty = numInput; 
+    }
+
+    const finalQty = parseFloat(calculatedQty.toFixed(8)); 
+    const finalPrice = numPrice; 
+    const finalSymbol = selectedSearchAsset.symbol;
+    
+    if (finalQty <= 0 && activeTab === 'PORTFOLIO') { 
+      Alert.alert(t('alertWarning'), t('alertInvalid')); 
+      return; 
+    }
+
+    let liveMarketPrice = finalPrice;
+    try {
+      if (assetType === 'CRYPTO') {
+        const result = await MarketService._fetchCryptoPrice(finalSymbol);
+        if (result?.price) liveMarketPrice = result.price;
+      } else if (assetType === 'GOLD') {
+        if (finalSymbol === 'XAU/USD' || finalSymbol === 'GLD/TRY') {
+          const goldResult = await MarketService._fetchGoldUSD();
+          if (goldResult?.price) {
+            if (finalSymbol === 'XAU/USD') { liveMarketPrice = goldResult.price; }
+            else {
+              const rates = await MarketService._fetchForexRates();
+              if (rates?.TRY) liveMarketPrice = parseFloat(((goldResult.price * rates.TRY) / 31.1035).toFixed(2));
+            }
+          }
+        } else if (finalSymbol === 'USD/TRY' || finalSymbol === 'EUR/TRY') {
+          const rates = await MarketService._fetchForexRates();
+          if (rates) {
+            if (finalSymbol === 'USD/TRY' && rates.TRY) liveMarketPrice = rates.TRY;
+            else if (finalSymbol === 'EUR/TRY' && rates.TRY && rates.EUR) liveMarketPrice = parseFloat((rates.TRY / rates.EUR).toFixed(4));
+          }
+        }
+      }
+    } catch (e) { }
+
+    if (activeTab === 'PORTFOLIO') {
+      const existingIndex = portfolio.findIndex(a => a.name === finalSymbol);
+      let updatedData = [...portfolio];
+      if (existingIndex >= 0) {
+        const existing = updatedData[existingIndex];
+        const oldTotalCost = existing.price * existing.quantity;
+        const newTotalCost = finalPrice * finalQty;
+        const totalQty = existing.quantity + finalQty;
+        updatedData[existingIndex] = { ...existing, price: (oldTotalCost + newTotalCost) / totalQty, quantity: totalQty, currentPrice: liveMarketPrice, type: assetType, note: note || existing.note };
+      } else {
+        updatedData.push({ id: Math.random().toString(), name: finalSymbol, type: assetType, price: finalPrice, quantity: finalQty, currentPrice: liveMarketPrice, note });
+      }
+      
+      setPortfolio(updatedData); 
+      saveData('@portfolio', updatedData);
+      logTransaction(t('buy'), finalSymbol, finalQty, finalPrice, 0, assetType);
+    } else {
+      // MARKET / WATCHLIST LOGIC
+      if (selectedListId) {
+        const updated = customLists.map(l => 
+          l.id === selectedListId 
+            ? { ...l, assetIds: l.assetIds.includes(finalSymbol) ? l.assetIds : [finalSymbol, ...l.assetIds] } 
+            : l
+        );
+        saveLists(updated);
+      } else {
+        const existingIndex = watchlist.findIndex(a => a.name === finalSymbol);
+        if (existingIndex === -1) {
+          const up = [{ id: Math.random().toString(), name: finalSymbol, type: assetType, price: finalPrice, currentPrice: liveMarketPrice, changePercent: 0 }, ...watchlist];
+          setWatchlist(up);
+          saveData('@watchlist', up);
+        }
+      }
+    }
+
+    resetAddModal();
+
+    if (activeTab === 'PORTFOLIO') {
+      setTimeout(async () => {
+        const historyData = await MarketService.fetchHistoricalPrices(finalSymbol, assetType, 30);
+        setPriceHistory(prev => {
+          const updatedHistory = { ...prev, [finalSymbol]: historyData };
+          AsyncStorage.setItem('@price_history', JSON.stringify(updatedHistory));
+          return updatedHistory;
+        });
+      }, 500);
+    }
+  };
+
+  const deleteAsset = (id) => { 
+    if(activeTab === 'PORTFOLIO') { const up = portfolio.filter(a => a.id !== id); setPortfolio(up); saveData('@portfolio', up); }
+    else { const up = watchlist.filter(a => a.id !== id); setWatchlist(up); saveData('@watchlist', up); }
+    setDetailModalVisible(false);
+  };
+
+  const sellAsset = () => {
+    const sellQty = parseFloat(sellQuantityInput.toString().replace(',', '.'));
+    const asset = portfolio.find(a => a.id === selectedAssetId);
+    if (!sellQty || sellQty <= 0 || sellQty > asset.quantity) { Alert.alert(t('alertWarning'), t('alertInvalid')); return; }
+
+    const cPrice = asset.currentPrice !== undefined ? asset.currentPrice : asset.price;
+    const grossProfitNative = (cPrice * sellQty) - (asset.price * sellQty);
+    
+    let taxNative = 0; 
+    if (asset.type === 'TEFAS' && grossProfitNative > 0) taxNative = grossProfitNative * 0.175; 
+    const netProfitNative = grossProfitNative - taxNative;
+
+    const isUsd = (asset.type === 'CRYPTO' || asset.type === 'USA' || asset.type === 'GOLD');
+    const rate = isUsd ? usdToTryRate : 1;
+    
+    const totalSaleValueNative = (cPrice * sellQty) - taxNative;
+    const totalSaleValueTRY = totalSaleValueNative * rate;
+
+    const remQty = asset.quantity - sellQty;
+    const upPort = remQty <= 0 ? portfolio.filter(a => a.id !== selectedAssetId) : portfolio.map(a => a.id === selectedAssetId ? { ...a, quantity: remQty } : a);
+    
+    setCashBalance(prev => prev + totalSaleValueTRY);
+    setPortfolio(upPort); 
+    saveData('@portfolio', upPort);
+    logTransaction(t('sell'), asset.name || asset.symbol, sellQty, cPrice, netProfitNative, asset.type);
+    
+    setSellModalVisible(false); setSellQuantityInput(''); setDetailModalVisible(false);
+  };
+
+  const updateCurrentPrice = () => {
+    if (!currentPriceInput) return;
+    const newPrice = parseFloat(currentPriceInput.toString().replace(',', '.'));
+    if (activeTab === 'PORTFOLIO') { const up = portfolio.map(a => a.id === selectedAssetId ? { ...a, currentPrice: newPrice } : a); setPortfolio(up); saveData('@portfolio', up); } 
+    else { const up = watchlist.map(a => a.id === selectedAssetId ? { ...a, currentPrice: newPrice } : a); setWatchlist(up); saveData('@watchlist', up); }
+    setDetailModalVisible(false); setCurrentPriceInput('');
+  };
+
+  return { addAsset, deleteAsset, sellAsset, updateCurrentPrice };
+};
