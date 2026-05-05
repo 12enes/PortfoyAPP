@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, ScrollView, TextInput, FlatList, LayoutAnimation } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { SwipeableModal } from '../../shared/components/SwipeableModal';
+import AssetIcon from '../../components/AssetIcon';
 
 export const AddAssetModal = ({
   visible, onClose, styles, COLORS, selectedSearchAsset, isAddMoreMode,
@@ -56,7 +57,9 @@ export const AddAssetModal = ({
                   onPress={() => handleAssetSelect(item)}
                 >
                     <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                      <View style={[styles.compactIconBox, {width: 36, height: 36, marginRight: 12, backgroundColor: item.isCustom ? COLORS.primarySoft : COLORS.surfaceHigh}]}><MaterialIcons name={item.isCustom ? "add" : getAssetIcon(assetType)} size={18} color={COLORS.primary} /></View>
+                      <View style={[styles.compactIconBox, {width: 36, height: 36, marginRight: 12, backgroundColor: item.isCustom ? COLORS.primarySoft : 'transparent'}]}>
+                        {item.isCustom ? <MaterialIcons name="add" size={18} color={COLORS.primary} /> : <AssetIcon asset={{...item, type: item.type || assetType}} size={36} />}
+                      </View>
                       <View><Text style={styles.resultSymbol}>{item.symbol}</Text><Text style={styles.resultName}>{item.name}</Text></View>
                     </View>
                     {isAdded ? (
@@ -73,7 +76,7 @@ export const AddAssetModal = ({
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{paddingBottom: 40}}>
           <View style={styles.selectedAssetCard}>
               <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                <View style={[styles.compactIconBox, {width: 40, height: 40, marginRight: 15}]}><MaterialIcons name={getAssetIcon(assetType)} size={20} color={COLORS.primary} /></View>
+                <View style={{marginRight: 15}}><AssetIcon asset={{...selectedSearchAsset, type: selectedSearchAsset.type || assetType}} size={40} /></View>
                 <View>
                   <Text style={styles.selectedSymbol}>{selectedSearchAsset.symbol}</Text>
                   <Text style={styles.resultName}>{selectedSearchAsset.name !== selectedSearchAsset.symbol ? selectedSearchAsset.name : t(assetType)}</Text>

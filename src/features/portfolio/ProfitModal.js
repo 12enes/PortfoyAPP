@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import Svg, { Path } from 'react-native-svg';
 import { SwipeableModal } from '../../shared/components/SwipeableModal';
+import AssetIcon from '../../components/AssetIcon';
 
 export const ProfitModal = ({
   visible, onClose, styles, COLORS, t, getTimeframeLabel,
@@ -28,6 +29,9 @@ export const ProfitModal = ({
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
           <Text style={{ color: COLORS.textSub, fontSize: 13, fontWeight: '600', marginRight: 15, width: 22 }}>{rank}</Text>
+          <View style={{ marginRight: 12 }}>
+            <AssetIcon asset={item} size={32} />
+          </View>
           <View>
             <Text style={{ color: COLORS.textMain, fontSize: 16, fontWeight: '700' }}>{item.symbol || item.name}</Text>
             <Text style={{ color: COLORS.textSub, fontSize: 12, marginTop: 2 }}>{item.name || item.symbol}</Text>

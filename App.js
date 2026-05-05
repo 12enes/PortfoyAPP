@@ -22,6 +22,7 @@ import { useSearch } from './src/features/search/useSearch';
 import { useSettings } from './src/features/settings/useSettings';
 import { getAssetIcon, getConvertedValue, createTranslationFunction } from './src/uiUtils';
 import { PortfolioScreen } from './src/features/portfolio/PortfolioScreen';
+import AssetIcon from './src/components/AssetIcon';
 import { MarketScreen } from './src/features/market/MarketScreen';
 import { SwipeableModal } from './src/shared/components/SwipeableModal';
 import { SettingsModal } from './src/shared/components/SettingsModal';
@@ -643,15 +644,9 @@ export default function App() {
         {/* SOL TARAF */}
         <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
           <View style={{ alignItems: 'flex-start' }}>
-            <View style={{ 
-              width: 40, 
-              height: 40, 
-              borderRadius: 20, 
-              backgroundColor: getLogoBg(item.type), 
-              justifyContent: 'center', 
-              alignItems: 'center',
-              marginBottom: 6
-            }} />
+            <View style={{ marginBottom: 6 }}>
+              <AssetIcon asset={item} size={40} />
+            </View>
             <Text style={{ color: '#8A8A9A', fontSize: 11, fontWeight: '500' }}>
               {displayCurrency}{cPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </Text>
@@ -700,6 +695,9 @@ export default function App() {
         onPress={() => { if (!isMarketEditMode && marketTabMode === 'GRID') { setSelectedAssetInfo(item); setSelectedAssetId(item.id); setDetailModalVisible(true); } }}
         onLongPress={() => { if (marketTabMode === 'GRID') setIsMarketEditMode(true); }}
       >
+        <View style={{ marginBottom: 12 }}>
+          <AssetIcon asset={item} size={32} />
+        </View>
         <Text style={styles.gridSymbol} numberOfLines={1}>{item.symbol || item.name}</Text>
         <Text style={styles.gridPrice}>
           {cPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}

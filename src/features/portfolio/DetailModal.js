@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { MaterialIcons } from '@expo/vector-icons';
 import { SwipeableModal } from '../../shared/components/SwipeableModal';
+import AssetIcon from '../../components/AssetIcon';
 
 export const DetailModal = ({
   visible, onClose, styles, COLORS, currentDetailAsset, getAssetIcon, t,
@@ -15,7 +16,7 @@ export const DetailModal = ({
       {currentDetailAsset && (
         <View>
           <View style={styles.detailHeader}>
-              <View style={styles.detailIconBox}><MaterialIcons name={getAssetIcon(currentDetailAsset.type)} size={32} color={COLORS.primary} /></View>
+              <View style={styles.detailIconBox}><AssetIcon asset={currentDetailAsset} size={32} /></View>
               <View style={{flex: 1, marginLeft: 15}}><Text style={styles.detailName}>{currentDetailAsset.name}</Text><Text style={styles.detailType}>{t(currentDetailAsset.type)}</Text></View>
           </View>
           
