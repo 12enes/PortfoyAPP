@@ -14,10 +14,18 @@ export const usePortfolioData = (deps) => {
     await AsyncStorage.setItem(key, JSON.stringify(data)); 
   };
 
-  const refreshPortfolioPrices = async (portfolioData) => {
+  const refreshPortfolioPrices = async (portfolioData, force = false) => {
     const data = portfolioData || portfolio;
     if (!data || data.length === 0) return;
+    
     try {
+      if (!force) {
+        const lastFetch = await AsyncStorage.getItem('@last_fetch_time');
+        if (lastFetch && Date.now() - Number(lastFetch) < 15 * 60 * 1000) {
+          return; // 15 dakika dolmamışsa API'ye gitme
+        }
+      }
+
       const updated = await MarketService.fetchMultiple(data);
       const merged = data.map(a => {
         const fresh = updated.find(u => u.id === a.id);
@@ -28,6 +36,7 @@ export const usePortfolioData = (deps) => {
       });
       setPortfolio(merged);
       saveData('@portfolio', merged);
+      await AsyncStorage.setItem('@last_fetch_time', Date.now().toString());
     } catch (e) { 
       console.log("Refresh error:", e); 
     }
@@ -46,20 +55,9 @@ export const usePortfolioData = (deps) => {
       const stored = await AsyncStorage.getItem('@chart_history');
       if (stored) {
         currentHistory = JSON.parse(stored);
-      } else {
-        for (let i = 30; i >= 1; i--) {
-          const pastDate = new Date();
-          pastDate.setDate(pastDate.getDate() - i);
-          const noise = 1 + ((Math.random() - 0.5) * 0.04);
-          currentHistory.push({
-            date: pastDate.toISOString().split('T')[0],
-            timestamp: pastDate.getTime(),
-            value: currentTotal > 0 ? currentTotal * Math.pow(noise, i/5) : 0,
-            cost: currentCost,
-            prices: currentAssetPrices
-          });
-        }
       }
+      // Mock veri üretimi kaldırıldı — yeni kullanıcı boş chartHistory ile başlar
+      // İlk gerçek kayıt aşağıdaki todayData bloğu tarafından eklenir
     }
 
     const todayIndex = currentHistory.findIndex(d => d.date === todayStr);
@@ -87,6 +85,7 @@ export const usePortfolioData = (deps) => {
       const updated = await MarketService.fetchMultiple(watchlist);
       setWatchlist(updated);
       saveData('@watchlist', updated);
+      await AsyncStorage.setItem('@last_fetch_time', Date.now().toString());
       // Flash animasyonu tetikle
       flashAnim.setValue(1);
       Animated.timing(flashAnim, { toValue: 0, duration: 800, useNativeDriver: false }).start();
@@ -131,12 +130,25 @@ export const usePortfolioData = (deps) => {
       const sCurr = await AsyncStorage.getItem('@currency');
       const sTheme = await AsyncStorage.getItem('@theme'); 
       const sLists = await AsyncStorage.getItem('@custom_lists');
+
+      // ONE-TIME MİGRASYON: Eski sahte chartHistory ve priceHistory verilerini temizle
+      const migrationDone = await AsyncStorage.getItem('@migration_v2_clean_mock');
+      if (!migrationDone) {
+        // Eski mock verileri temizle — yeni gerçek veriler sıfırdan birikecek
+        await AsyncStorage.removeItem('@chart_history');
+        await AsyncStorage.removeItem('@price_history');
+        await AsyncStorage.setItem('@migration_v2_clean_mock', 'true');
+        // Temizlenmiş veriyi kullanma, boş başla
+        setChartHistory([]);
+        setPriceHistory({});
+      } else {
+        if (sChart) setChartHistory(JSON.parse(sChart));
+        if (sPriceHist) setPriceHistory(JSON.parse(sPriceHist));
+      }
       
       if (sPort) setPortfolio(JSON.parse(sPort).map(item => ({...item, type: migrateType(item.type)})));
       if (sWatch) setWatchlist(JSON.parse(sWatch).map(item => ({ ...item, type: migrateType(item.type), changePercent: item.changePercent || 0 })));
       if (sHist) setHistory(JSON.parse(sHist));
-      if (sChart) setChartHistory(JSON.parse(sChart));
-      if (sPriceHist) setPriceHistory(JSON.parse(sPriceHist));
       if (sLang) setLang(sLang);
       if (sCurr) setCurrency(sCurr);
       if (sTheme) setTheme(sTheme);

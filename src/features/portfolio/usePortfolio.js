@@ -14,13 +14,16 @@ export const usePortfolio = (deps) => {
   } = deps;
 
   const addAsset = async () => {
-    if (!selectedSearchAsset || !buyPrice || !primaryInput) { 
+    if (!selectedSearchAsset) return;
+
+    // PORTFOLIO modunda zorunlu alan kontrolü
+    if (activeTab === 'PORTFOLIO' && (!buyPrice || !primaryInput)) {
       Alert.alert(t('alertWarning'), t('alertFill')); 
       return; 
     }
     
-    const numInput = parseFloat(primaryInput.toString().replace(',', '.')) || 0;
-    const numPrice = parseFloat(buyPrice.toString().replace(',', '.')) || 0;
+    const numInput = parseFloat((primaryInput || '').toString().replace(',', '.')) || 0;
+    const numPrice = parseFloat((buyPrice || selectedSearchAsset.price || '0').toString().replace(',', '.')) || 0;
 
     let calculatedQty = 0;
     if (inputMode === 'AMOUNT') { 
@@ -33,7 +36,7 @@ export const usePortfolio = (deps) => {
     const finalPrice = numPrice; 
     const finalSymbol = selectedSearchAsset.symbol;
     
-    if (finalQty <= 0 && activeTab === 'PORTFOLIO') { 
+    if (activeTab === 'PORTFOLIO' && finalQty <= 0) { 
       Alert.alert(t('alertWarning'), t('alertInvalid')); 
       return; 
     }
@@ -44,7 +47,7 @@ export const usePortfolio = (deps) => {
         const result = await MarketService._fetchCryptoPrice(finalSymbol);
         if (result?.price) liveMarketPrice = result.price;
       } else if (assetType === 'GOLD') {
-        if (finalSymbol === 'XAU/USD' || finalSymbol === 'GLD/TRY') {
+        if (finalSymbol === 'XAU/USD' || finalSymbol === 'GRAM/TL') {
           const goldResult = await MarketService._fetchGoldUSD();
           if (goldResult?.price) {
             if (finalSymbol === 'XAU/USD') { liveMarketPrice = goldResult.price; }
@@ -53,12 +56,15 @@ export const usePortfolio = (deps) => {
               if (rates?.TRY) liveMarketPrice = parseFloat(((goldResult.price * rates.TRY) / 31.1035).toFixed(2));
             }
           }
-        } else if (finalSymbol === 'USD/TRY' || finalSymbol === 'EUR/TRY') {
+        } else if (finalSymbol === 'DOLAR/TL' || finalSymbol === 'EURO/TL') {
           const rates = await MarketService._fetchForexRates();
           if (rates) {
-            if (finalSymbol === 'USD/TRY' && rates.TRY) liveMarketPrice = rates.TRY;
-            else if (finalSymbol === 'EUR/TRY' && rates.TRY && rates.EUR) liveMarketPrice = parseFloat((rates.TRY / rates.EUR).toFixed(4));
+            if (finalSymbol === 'DOLAR/TL' && rates.TRY) liveMarketPrice = rates.TRY;
+            else if (finalSymbol === 'EURO/TL' && rates.TRY && rates.EUR) liveMarketPrice = parseFloat((rates.TRY / rates.EUR).toFixed(4));
           }
+        } else if (finalSymbol === 'BRENT') {
+          const brentResult = await MarketService._fetchYahooFinance('BZ=F');
+          if (brentResult?.price) liveMarketPrice = brentResult.price;
         }
       }
     } catch (e) { }
@@ -71,9 +77,9 @@ export const usePortfolio = (deps) => {
         const oldTotalCost = existing.price * existing.quantity;
         const newTotalCost = finalPrice * finalQty;
         const totalQty = existing.quantity + finalQty;
-        updatedData[existingIndex] = { ...existing, price: (oldTotalCost + newTotalCost) / totalQty, quantity: totalQty, currentPrice: liveMarketPrice, type: assetType, note: note || existing.note };
+        updatedData[existingIndex] = { ...existing, price: (oldTotalCost + newTotalCost) / totalQty, quantity: totalQty, currentPrice: liveMarketPrice, type: assetType, note: note || existing.note, addedDate: existing.addedDate || Date.now() };
       } else {
-        updatedData.push({ id: Math.random().toString(), name: finalSymbol, type: assetType, price: finalPrice, quantity: finalQty, currentPrice: liveMarketPrice, note });
+        updatedData.push({ id: Math.random().toString(), name: finalSymbol, type: assetType, price: finalPrice, quantity: finalQty, currentPrice: liveMarketPrice, addedDate: Date.now(), note });
       }
       
       setPortfolio(updatedData); 

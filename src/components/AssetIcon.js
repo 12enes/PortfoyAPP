@@ -5,7 +5,9 @@ import FundLogo from './FundLogo';
 // Dövizler (Forex) için flagCodes sözlüğü
 const flagCodes = {
   'USD': 'us',
+  'DOLAR': 'us',
   'EUR': 'eu',
+  'EURO': 'eu',
   'GBP': 'gb',
   'JPY': 'jp',
   'AUD': 'au',
@@ -32,7 +34,7 @@ const AssetIcon = ({ asset, size = 40 }) => {
   let currentType = asset.type;
   // Auto-Type Logic: Tip boşsa tahminde bulun
   if (!currentType) {
-    if (symbol.includes('/TRY')) currentType = 'FOREX';
+    if (symbol.includes('/TRY') || symbol.includes('/TL')) currentType = 'FOREX';
     else if (symbol.length >= 3 && symbol.length <= 6) currentType = 'BIST'; // Basit bir tahmin
   }
 
@@ -49,7 +51,7 @@ const AssetIcon = ({ asset, size = 40 }) => {
   } else if (currentType === 'TEFAS') {
     useFundLogo = true;
     imageUrl = 'tefas_placeholder'; // Condition'ı geçmek için
-  } else if (currentType === 'FOREX' || symbol.includes('/TRY')) {
+  } else if (currentType === 'FOREX' || symbol.includes('/TRY') || symbol.includes('/TL')) {
     const code = flagCodes[cleanSymbol];
     if (code) imageUrl = `https://flagcdn.com/w160/${code}.png`;
   }
@@ -63,8 +65,10 @@ const AssetIcon = ({ asset, size = 40 }) => {
       fallbackText = cleanSymbol.substring(0, 3);
     }
 
-    if (asset.type === 'GOLD' || symbol.toUpperCase() === 'ALTIN' || symbol.toUpperCase() === 'XAU') {
+    if (asset.type === 'GOLD' || symbol.toUpperCase() === 'ALTIN' || symbol.toUpperCase() === 'XAU' || cleanSymbol === 'GRAM') {
       fallbackText = 'AU';
+    } else if (cleanSymbol === 'BRENT') {
+      fallbackText = 'BR';
     }
 
     return (

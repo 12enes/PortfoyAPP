@@ -194,9 +194,23 @@ export const getPortfolioPerformanceByTimeframe = (totalNetCurrentValue, chartHi
     return { amount, pct };
 };
 
-// 8. TWR (Zaman Ağırlıklı Getiri) ve Varlık Akışı Hesaplayıcısı (MIDAS ALGORİTMASI)
+// 8. TWR (Zaman Ağırlıklı Getiri) ve Varlık Akışı Hesaplayıcısı (MIDAS ALGORİTMASI v2)
 export const calculateAdvancedChartData = (chartHistory, timeFilter, totalNetCurrentValue, totalUnrealizedPnL, unrealizedPnLPct) => {
+    // Boş portföy → düz çizgi veya sıfır dön
     if (!chartHistory || chartHistory.length === 0) {
+        // Portföy değeri varsa tek noktalı düz çizgi oluştur
+        if (totalNetCurrentValue > 0) {
+            const now = Date.now();
+            const flatLine = [
+                { date: now - 3600000, value: totalNetCurrentValue, cost: totalNetCurrentValue - (totalUnrealizedPnL || 0) },
+                { date: now, value: totalNetCurrentValue, cost: totalNetCurrentValue - (totalUnrealizedPnL || 0) }
+            ];
+            return { 
+                assetFlowData: flatLine, 
+                performanceData: [{ date: flatLine[0].date, value: 0 }, { date: flatLine[1].date, value: 0 }], 
+                pnl: { amount: totalUnrealizedPnL || 0, pct: unrealizedPnLPct || 0 } 
+            };
+        }
         return { 
             assetFlowData: [], 
             performanceData: [], 
@@ -204,37 +218,86 @@ export const calculateAdvancedChartData = (chartHistory, timeFilter, totalNetCur
         };
     }
 
+    // DÜZ ÇİZGİ DESTEĞİ: Tek veri noktası → 2 noktaya çoğalt
+    let workingHistory = [...chartHistory];
+    if (workingHistory.length === 1) {
+        const single = workingHistory[0];
+        workingHistory.unshift({
+            date: single.date,
+            timestamp: (single.timestamp || Date.now()) - 3600000, // 1 saat önce
+            value: single.value,
+            cost: single.cost,
+            prices: single.prices
+        });
+    }
+
+    // ALL seçiliyken direkt tüm geçmişi kullan, karmaşık filtreleme yapma
+    if (timeFilter === 'ALL') {
+        const assetFlowData = workingHistory.map(d => ({
+            date: d.timestamp || Date.now(),
+            value: (typeof d.value === 'number' && !isNaN(d.value)) ? Math.max(0, d.value) : 0,
+            cost: (typeof d.cost === 'number' && !isNaN(d.cost)) ? Math.max(0, d.cost) : 0
+        }));
+
+        const performanceData = _calculateTWR(assetFlowData);
+
+        return { 
+            assetFlowData, 
+            performanceData, 
+            pnl: { amount: totalUnrealizedPnL, pct: unrealizedPnLPct } 
+        };
+    }
+
+    // Timeframe cutoff hesabı
     const now = Date.now();
     let cutoff = 0;
     switch (timeFilter) {
         case '1D': cutoff = now - 24 * 60 * 60 * 1000; break;
         case '1W': cutoff = now - 7 * 24 * 60 * 60 * 1000; break;
         case '1M': cutoff = now - 30 * 24 * 60 * 60 * 1000; break;
-        case '3M': cutoff = cutoff = now - 90 * 24 * 60 * 60 * 1000; break;
+        case '3M': cutoff = now - 90 * 24 * 60 * 60 * 1000; break;
         case '6M': cutoff = now - 180 * 24 * 60 * 60 * 1000; break;
         case 'YTD': cutoff = new Date(new Date().getFullYear(), 0, 1).getTime(); break;
         case '1Y': cutoff = now - 365 * 24 * 60 * 60 * 1000; break;
-        case 'ALL': default: cutoff = 0; break;
+        default: cutoff = 0; break;
     }
 
-    let filtered = [...chartHistory.filter(d => d.timestamp >= cutoff)];
+    // FALLBACK MANTIĞI: Portföyün en eski kaydı cutoff'tan sonra mı?
+    // Yani seçilen timeframe için yeterli geçmiş veri var mı?
+    const oldestRecord = workingHistory[0];
+    const hasEnoughHistory = oldestRecord && oldestRecord.timestamp <= cutoff;
 
-    // Midas Düz Çizgi (Flatline) Büyüsü: Tarih boşluklarını doldur
-    if (timeFilter !== 'ALL' && cutoff > 0) {
-        if (filtered.length === 0 || filtered[0].timestamp > cutoff + 86400000) {
-            const anchorCost = filtered.length > 0 ? filtered[0].cost : 0;
-            const anchorValue = filtered.length > 0 ? filtered[0].value : 0;
-            filtered.unshift({
-                date: new Date(cutoff).toISOString().split('T')[0],
-                timestamp: cutoff,
-                value: anchorValue, 
-                cost: anchorCost
-            });
-        }
+    if (!hasEnoughHistory) {
+        // Yeterli geçmiş yok → ALL ile aynı değerleri kullan
+        const assetFlowData = workingHistory.map(d => ({
+            date: d.timestamp || Date.now(),
+            value: (typeof d.value === 'number' && !isNaN(d.value)) ? Math.max(0, d.value) : 0,
+            cost: (typeof d.cost === 'number' && !isNaN(d.cost)) ? Math.max(0, d.cost) : 0
+        }));
+
+        const performanceData = _calculateTWR(assetFlowData);
+
+        return { 
+            assetFlowData, 
+            performanceData, 
+            pnl: { amount: totalUnrealizedPnL, pct: unrealizedPnLPct } 
+        };
     }
 
-    if (filtered.length < 2 && chartHistory.length >= 2) {
-        filtered = chartHistory.slice(-2);
+    // Yeterli geçmiş var → Normal timeframe hesabı
+    let filtered = workingHistory.filter(d => d.timestamp >= cutoff);
+
+    // TWR KORUMASI: En az 2 veri noktası gerekli
+    if (filtered.length < 2) {
+        return { 
+            assetFlowData: filtered.map(d => ({
+                date: d.timestamp || Date.now(),
+                value: (typeof d.value === 'number' && !isNaN(d.value)) ? Math.max(0, d.value) : 0,
+                cost: (typeof d.cost === 'number' && !isNaN(d.cost)) ? Math.max(0, d.cost) : 0
+            })), 
+            performanceData: [], 
+            pnl: { amount: totalUnrealizedPnL, pct: unrealizedPnLPct } 
+        };
     }
 
     // 1. VARLIK AKIŞI DATASI (Klasik Para Grafiği)
@@ -244,13 +307,39 @@ export const calculateAdvancedChartData = (chartHistory, timeFilter, totalNetCur
         cost: (typeof d.cost === 'number' && !isNaN(d.cost)) ? Math.max(0, d.cost) : 0
     }));
 
-    // 2. PERFORMANS DATASI (TWR - Zaman Ağırlıklı Getiri Yüzdesi)
+    // 2. PERFORMANS DATASI (TWR)
+    const performanceData = _calculateTWR(assetFlowData);
+
+    // 3. Kâr / Zarar Hesaplaması — Dönemsel
+    const historicalValue = assetFlowData[0]?.value || 0;
+    const historicalCost = assetFlowData[0]?.cost || 0;
+
+    let amount = 0;
+    let pct = 0;
+
+    if (historicalValue <= 0) {
+        amount = totalUnrealizedPnL;
+        pct = unrealizedPnLPct;
+    } else {
+        // Şimdiki değer - dönem başındaki değer = dönemsel kazanç
+        amount = totalNetCurrentValue - historicalValue;
+        // TWR yüzdesini kullan (para giriş/çıkışından arındırılmış)
+        pct = performanceData.length > 0 ? performanceData[performanceData.length - 1]?.value || 0 : 0;
+    }
+
+    return { assetFlowData, performanceData, pnl: { amount, pct } };
+};
+
+// YENİ: TWR Hesaplama Yardımcı Fonksiyonu (DRY prensibi)
+const _calculateTWR = (assetFlowData) => {
+    if (!assetFlowData || assetFlowData.length < 2) return [];
+
     let performanceData = [];
-    let cumulativeReturn = 1; // 1 = %100 (Başlangıç noktası)
+    let cumulativeReturn = 1;
 
     for (let i = 0; i < assetFlowData.length; i++) {
         if (i === 0) {
-            performanceData.push({ date: assetFlowData[i].date, value: 0 }); // Grafik %0'dan başlar
+            performanceData.push({ date: assetFlowData[i].date, value: 0 });
             continue;
         }
 
@@ -260,7 +349,7 @@ export const calculateAdvancedChartData = (chartHistory, timeFilter, totalNetCur
         // O gün kasaya yeni para girdi mi/çıktı mı? (Maliyet değişimi)
         const cashFlow = curr.cost - prev.cost;
         
-        // TWR Formülü: Getiriyi hesaplarken kasaya o gün giren parayı hesaptan düşeriz (Etkisizleştiririz)
+        // TWR Formülü: Getiriyi hesaplarken kasaya o gün giren parayı hesaptan düşeriz
         const adjustedPrevValue = prev.value + cashFlow; 
         
         let dailyReturn = 0;
@@ -270,7 +359,6 @@ export const calculateAdvancedChartData = (chartHistory, timeFilter, totalNetCur
 
         cumulativeReturn = cumulativeReturn * (1 + dailyReturn);
         
-        // Grafiğe çizilecek yüzde değeri (Örn: 0.15 -> %15)
         const percentageValue = (cumulativeReturn - 1) * 100;
         performanceData.push({ 
             date: curr.date, 
@@ -278,23 +366,5 @@ export const calculateAdvancedChartData = (chartHistory, timeFilter, totalNetCur
         });
     }
 
-    // Kâr / Zarar Hesaplaması
-    let amount = 0;
-    let pct = 0;
-
-    const historicalValue = assetFlowData[0]?.value || 0;
-    const historicalCost = assetFlowData[0]?.cost || 0;
-
-    if (timeFilter === 'ALL' || historicalValue === historicalCost || historicalValue <= 0) {
-         amount = totalUnrealizedPnL;
-         pct = unrealizedPnLPct;
-    } else {
-         const historicalPnL = historicalValue - historicalCost;
-         amount = totalUnrealizedPnL - historicalPnL;
-         
-         // Performans (TWR) sekmesi için kullanıcının gerçek getirisini son TWR verisinden alıyoruz
-         pct = performanceData[performanceData.length - 1]?.value || 0;
-    }
-
-    return { assetFlowData, performanceData, pnl: { amount, pct } };
+    return performanceData;
 };

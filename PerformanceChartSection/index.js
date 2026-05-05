@@ -7,7 +7,7 @@ import CrosshairLayer from './CrosshairLayer';
 import { formatDate } from './utils/formatter';
 
 export default function PerformanceChartSection({
-  data, liveValue, liveChange, liveChangeAmount, language, currency, locale
+  data, liveValue, liveChange, liveChangeAmount, language, currency, locale, viewMode
 }) {
   const [dimensions, setDimensions] = useState({ width: 0, height: 220 });
   
@@ -123,7 +123,8 @@ export default function PerformanceChartSection({
               data={data} 
               width={dimensions.width} 
               height={dimensions.height} 
-              lineColor="#00FFA3" 
+              lineColor={liveChange >= 0 ? '#00FFA3' : '#FF4D4D'} 
+              viewMode={viewMode}
             />
             
             {/* 2. KATMAN (Orta): Drone/Lazer İşaretleyici */}

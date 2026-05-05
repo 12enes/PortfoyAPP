@@ -24,6 +24,15 @@ export const PortfolioScreen = ({
         keyExtractor={item => item.id}
         renderItem={renderCompactItem}
         renderSectionHeader={({ section: { title } }) => ( <Text style={styles.categoryTitle}>{t(title)}</Text> )}
+        ItemSeparatorComponent={() => (
+          <View style={{ height: 1, backgroundColor: 'rgba(58, 58, 69, 0.4)', marginHorizontal: 16 }} />
+        )}
+        SectionSeparatorComponent={({ leadingItem, trailingItem }) => {
+          if (leadingItem && !trailingItem) {
+            return <View style={{ height: 1, backgroundColor: '#3A3A45' }} />;
+          }
+          return null;
+        }}
         refreshControl={<RefreshControl refreshing={isRefreshingPortfolio} onRefresh={onRefreshPortfolio} tintColor={COLORS.primary} colors={[COLORS.primary]} />}
         ListHeaderComponent={(
           <View style={{ paddingBottom: 10 }}>
@@ -132,15 +141,39 @@ export const PortfolioScreen = ({
                   </TouchableOpacity>
                 </View>
 
-                 <PerformanceChartSection
-                  data={stableChartData}
-                  liveValue={currency === '$' ? totalNetCurrentValue / usdToTryRate : totalNetCurrentValue}
-                  liveChange={timeframePerformance.pct}
-                  liveChangeAmount={timeframePerformance.amount}
-                  language={lang}
-                  currency={currency}
-                  locale={lang === 'tr' ? 'tr-TR' : 'en-US'} 
-                />
+                {stableChartData && stableChartData.length >= 2 ? (
+                  <PerformanceChartSection
+                    data={stableChartData}
+                    liveValue={currency === '$' ? totalNetCurrentValue / usdToTryRate : totalNetCurrentValue}
+                    liveChange={timeframePerformance.pct}
+                    liveChangeAmount={timeframePerformance.amount}
+                    language={lang}
+                    currency={currency}
+                    locale={lang === 'tr' ? 'tr-TR' : 'en-US'}
+                    viewMode={chartViewMode}
+                  />
+                ) : (
+                  <View style={{ 
+                    height: 220, 
+                    justifyContent: 'center', 
+                    alignItems: 'center', 
+                    marginHorizontal: 20,
+                    borderRadius: 20,
+                    backgroundColor: 'rgba(255,255,255,0.03)',
+                    borderWidth: 1,
+                    borderColor: 'rgba(255,255,255,0.06)'
+                  }}>
+                    <MaterialIcons name="show-chart" size={32} color="#3A3A45" style={{ marginBottom: 12 }} />
+                    <Text style={{ color: '#8A8A9A', fontSize: 14, fontWeight: '600', textAlign: 'center' }}>
+                      {lang === 'tr' ? 'Grafik verisi birikiyor...' : 'Building chart data...'}
+                    </Text>
+                    <Text style={{ color: '#555', fontSize: 12, marginTop: 6, textAlign: 'center', paddingHorizontal: 40 }}>
+                      {lang === 'tr' 
+                        ? 'Portföy geçmişin oluştukça grafik burada görünecek.' 
+                        : 'Your chart will appear as portfolio history builds up.'}
+                    </Text>
+                  </View>
+                )}
               </>
             )}
 

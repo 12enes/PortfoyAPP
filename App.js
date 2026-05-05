@@ -61,8 +61,58 @@ const getCurrencySymbol = (type) => {
 
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
 
-
 const MarketService = {
+  // TEFAS API: Doğrudan Native Fetch
+  _fetchTefas: async (symbol) => {
+    try {
+      const res = await fetch('https://www.tefas.gov.tr/api/funds/fonFiyatBilgiGetir', {
+        method: 'POST',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({fonKodu: symbol, dil: 'TR', periyod: 1})
+      });
+      if (!res.ok) throw new Error(`TEFAS HTTP ${res.status}`);
+      const data = await res.json();
+      
+      if (data && data.resultList && data.resultList.length > 0) {
+        const prices = data.resultList.map(item => item.fiyat);
+        const latestPrice = prices[prices.length - 1];
+        let changePct = 0;
+        if (prices.length > 1) {
+           const prevPrice = prices[prices.length - 2];
+           if (prevPrice > 0) changePct = ((latestPrice - prevPrice) / prevPrice) * 100;
+        }
+        return { price: latestPrice, changePct };
+      }
+      return null;
+    } catch (e) {
+      console.log(`TEFAS fetch error for ${symbol}:`, e.message);
+      return null;
+    }
+  },
+
+  // Yahoo Finance: BIST (.IS), ABD (AAPL vs), Emtia
+  _fetchYahooFinance: async (symbol) => {
+    try {
+      const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`);
+      if (!res.ok) throw new Error(`Yahoo HTTP ${res.status}`);
+      const data = await res.json();
+      if (!data.chart || !data.chart.result || !data.chart.result[0]) return null;
+      
+      const meta = data.chart.result[0].meta;
+      const price = meta.regularMarketPrice;
+      const prevClose = meta.chartPreviousClose;
+      const changePct = prevClose ? ((price - prevClose) / prevClose) * 100 : 0;
+      return { price, changePct };
+    } catch (e) {
+      console.log(`Yahoo fetch error for ${symbol}:`, e.message);
+      return null;
+    }
+  },
+
   // Binance: Kripto fiyatları (BTC, ETH, BNB, SOL, XRP → USDT paritesi)
   _fetchCryptoPrice: async (symbol) => {
     try {
@@ -96,102 +146,107 @@ const MarketService = {
 
   fetchAsset: async (id) => { return {}; },
 
-  // FAZ 1: Geriye Dönük Veri Çekme ve Forward-Fill (Tatil/Boşluk Doldurma) Algoritması
-  // DÜZELTME: Artık doğru yerde, kendi başına bağımsız bir fonksiyon.
   fetchHistoricalPrices: async (symbol, type, daysBack = 30) => {
-    try {
-      const now = new Date();
-      const mockData = {};
-      
-      let basePrice = 100;
-      if (type === 'CRYPTO') {
-        const res = await MarketService._fetchCryptoPrice(symbol);
-        if (res?.price) basePrice = res.price;
-      }
-
-      for (let i = daysBack; i >= 0; i--) {
-        const pastDate = new Date();
-        pastDate.setDate(now.getDate() - i);
-        const dayOfWeek = pastDate.getDay();
-        if (dayOfWeek !== 0 && dayOfWeek !== 6) { 
-          const dateStr = pastDate.toISOString().split('T')[0];
-          const noise = 1 + ((Math.random() - 0.5) * 0.05);
-          mockData[dateStr] = basePrice * Math.pow(noise, i/10);
-        }
-      }
-
-      const filledData = {};
-      let lastKnownPrice = basePrice;
-      
-      for (let i = daysBack; i >= 0; i--) {
-        const pastDate = new Date();
-        pastDate.setDate(now.getDate() - i);
-        const dateStr = pastDate.toISOString().split('T')[0];
-        const timestamp = pastDate.getTime();
-
-        if (mockData[dateStr]) {
-          lastKnownPrice = mockData[dateStr];
-        }
-        
-        filledData[timestamp] = lastKnownPrice; 
-      }
-
-      return filledData;
-    } catch (e) {
-      console.log('Geçmiş veri çekilemedi:', e);
-      return {};
-    }
+    return {};
   },
 
   fetchMultiple: async (assets) => {
     const needsCrypto = assets.some(a => a.type === 'CRYPTO');
     const needsGold = assets.some(a => a.type === 'GOLD');
+    const needsYahoo = assets.some(a => a.type === 'BIST' || a.type === 'USA' || a.symbol === 'BRENT' || a.name === 'BRENT');
+    const needsTefas = assets.some(a => a.type === 'TEFAS');
     
-    const cryptoSymbols = [...new Set(assets.filter(a => a.type === 'CRYPTO').map(a => a.name))];
+    // 1. Kripto İstekleri
+    const cryptoSymbols = [...new Set(assets.filter(a => a.type === 'CRYPTO').map(a => a.name || a.symbol))];
     const cryptoPromises = needsCrypto
       ? cryptoSymbols.map(sym => MarketService._fetchCryptoPrice(sym).then(r => [sym, r]))
       : [];
 
+    // 2. Yahoo Finance İstekleri (BIST ve ABD)
+    const yahooSymbolsMap = {}; // Ekranda görünen ad ile Yahoo sorgu adını eşleştir
+    assets.filter(a => a.type === 'BIST' || a.type === 'USA' || a.symbol === 'BRENT' || a.name === 'BRENT').forEach(a => {
+      let fetchSymbol = a.name || a.symbol;
+      if (a.type === 'BIST' && fetchSymbol && !fetchSymbol.endsWith('.IS')) {
+        fetchSymbol = `${fetchSymbol}.IS`;
+      } else if (fetchSymbol === 'BRENT') {
+        fetchSymbol = 'BZ=F';
+      }
+      yahooSymbolsMap[a.name || a.symbol] = fetchSymbol;
+    });
+    
+    const uniqueYahooSymbols = [...new Set(Object.values(yahooSymbolsMap))];
+    const yahooPromises = needsYahoo
+      ? uniqueYahooSymbols.map(sym => MarketService._fetchYahooFinance(sym).then(r => [sym, r]))
+      : [];
+
+    // 3. TEFAS İstekleri
+    const tefasSymbols = [...new Set(assets.filter(a => a.type === 'TEFAS').map(a => a.name || a.symbol))];
+    const tefasPromises = needsTefas
+      ? tefasSymbols.map(sym => MarketService._fetchTefas(sym).then(r => [sym, r]))
+      : [];
+
+    // 4. Altın ve Döviz
     const goldPromise = needsGold ? MarketService._fetchGoldUSD() : Promise.resolve(null);
     const forexPromise = needsGold ? MarketService._fetchForexRates() : Promise.resolve(null);
 
-    const [cryptoResults, goldData, forexRates] = await Promise.all([
+    const [cryptoResults, yahooResults, tefasResults, goldData, forexRates] = await Promise.all([
       Promise.all(cryptoPromises),
+      Promise.all(yahooPromises),
+      Promise.all(tefasPromises),
       goldPromise,
       forexPromise
     ]);
 
-    const cryptoMap = {};
-    cryptoResults.forEach(([sym, result]) => { if (result) cryptoMap[sym] = result; });
+    const dataMap = {};
+    cryptoResults.forEach(([sym, result]) => { if (result) dataMap[sym] = result; });
+    yahooResults.forEach(([sym, result]) => { if (result) dataMap[sym] = result; });
+    tefasResults.forEach(([sym, result]) => { if (result) dataMap[sym] = result; });
 
     const usdTry = forexRates?.TRY || null;
     const eurUsd = forexRates?.EUR || null; 
     const xauUsd = goldData?.price || null;
 
     const updated = assets.map(a => {
-      if (a.type === 'CRYPTO' && cryptoMap[a.name]) {
-        const { price, changePct } = cryptoMap[a.name];
+      const sym = a.name || a.symbol;
+      
+      // BIST, ABD Hisse ve BRENT Eşleştirmesi
+      if (a.type === 'BIST' || a.type === 'USA' || sym === 'BRENT') {
+        const querySymbol = yahooSymbolsMap[sym];
+        if (dataMap[querySymbol]) {
+          const { price, changePct } = dataMap[querySymbol];
+          return { ...a, currentPrice: price, changePercent: changePct };
+        }
+      }
+
+      // Kripto Eşleştirmesi
+      if (a.type === 'CRYPTO' && dataMap[sym]) {
+        const { price, changePct } = dataMap[sym];
         return { ...a, currentPrice: price, changePercent: changePct };
       }
 
-      if (a.type === 'GOLD') {
-        const symbol = a.name; 
+      // TEFAS Eşleştirmesi
+      if (a.type === 'TEFAS' && dataMap[sym]) {
+        const { price, changePct } = dataMap[sym];
+        return { ...a, currentPrice: price, changePercent: changePct };
+      }
 
-        if (symbol === 'USD/TRY' && usdTry) {
+      // Altın/Döviz Eşleştirmesi
+      if (a.type === 'GOLD') {
+        if (sym === 'DOLAR/TL' && usdTry) {
           const oldPrice = a.currentPrice || a.price;
           const pct = oldPrice > 0 ? ((usdTry - oldPrice) / oldPrice) * 100 : 0;
           return { ...a, currentPrice: usdTry, changePercent: pct };
         }
-        if (symbol === 'EUR/TRY' && usdTry && eurUsd) {
+        if (sym === 'EURO/TL' && usdTry && eurUsd) {
           const eurTry = usdTry / eurUsd; 
           const oldPrice = a.currentPrice || a.price;
           const pct = oldPrice > 0 ? ((eurTry - oldPrice) / oldPrice) * 100 : 0;
           return { ...a, currentPrice: parseFloat(eurTry.toFixed(4)), changePercent: pct };
         }
-        if (symbol === 'XAU/USD' && xauUsd) {
+        if (sym === 'XAU/USD' && xauUsd) {
           return { ...a, currentPrice: xauUsd, changePercent: goldData.changePct };
         }
-        if (symbol === 'GLD/TRY' && xauUsd && usdTry) {
+        if (sym === 'GRAM/TL' && xauUsd && usdTry) {
           const gramTry = (xauUsd * usdTry) / 31.1035;
           const oldPrice = a.currentPrice || a.price;
           const pct = oldPrice > 0 ? ((gramTry - oldPrice) / oldPrice) * 100 : 0;
@@ -201,7 +256,6 @@ const MarketService = {
 
       return { ...a, changePercent: a.changePercent || 0 };
     });
-
     return updated;
   }
 };
@@ -378,30 +432,19 @@ export default function App() {
   useEffect(() => {
     const pollInterval = setInterval(async () => {
       try {
-        // Portföy fiyatlarını güncelle
         if (portfolioRef.current.length > 0) {
-          const updatedPort = await MarketService.fetchMultiple(portfolioRef.current);
-          const mergedPort = portfolioRef.current.map(a => {
-            const fresh = updatedPort.find(u => u.id === a.id);
-            if (fresh && fresh.currentPrice !== undefined) {
-              return { ...a, currentPrice: fresh.currentPrice, changePercent: fresh.changePercent || 0 };
-            }
-            return a;
-          });
-          setPortfolio(mergedPort);
-          saveData('@portfolio', mergedPort);
+          await refreshPortfolioPrices(portfolioRef.current, false);
         }
-        // Watchlist fiyatlarını güncelle
         if (watchlistRef.current.length > 0) {
-          const updatedWatch = await MarketService.fetchMultiple(watchlistRef.current);
-          setWatchlist(updatedWatch);
-          saveData('@watchlist', updatedWatch);
-          // Flash animasyonu tetikle
-          flashAnim.setValue(1);
-          Animated.timing(flashAnim, { toValue: 0, duration: 800, useNativeDriver: false }).start();
+          // Watchlist cache kontrolü `onRefreshMarket` içinde tam olmadığı için burada doğrudan fetch kullanmak yerine
+          // 15 dakikada bir çalıştığı için güvenle fetch edebiliriz.
+          const lastFetch = await AsyncStorage.getItem('@last_fetch_time');
+          if (!lastFetch || Date.now() - Number(lastFetch) >= 15 * 60 * 1000) {
+            await onRefreshMarket();
+          }
         }
-      } catch (e) { /* Ağ hatası - sonraki döngüde tekrar denenecek */ }
-    }, 5000);
+      } catch (e) { /* Hata yok sayılır */ }
+    }, 15 * 60 * 1000); // 15 dakika
 
     return () => clearInterval(pollInterval);
   }, []);
@@ -415,12 +458,15 @@ export default function App() {
   // saveDailySnapshot moved to usePortfolioData
 
 
-  // Veritabanını güncel tutan motor (HIZLANDIRILDI)
+  // Veritabanını güncel tutan motor — portföy değeri yüklendikten sonra çalışır
   useEffect(() => {
-     saveDailySnapshot(totalNetCurrentValue, totalCost); // Uygulama açıldığında beklemeden hemen kaydet
+     if (totalNetCurrentValue <= 0) return; // Portföy henüz yüklenmediyse kaydetme
+     saveDailySnapshot(totalNetCurrentValue, totalCost);
      const timer = setInterval(() => {
-        saveDailySnapshot(totalNetCurrentValue, totalCost);
-     }, 60000); // Her dakikada bir güncelle
+        if (totalNetCurrentValue > 0) {
+          saveDailySnapshot(totalNetCurrentValue, totalCost);
+        }
+     }, 60000);
      return () => clearInterval(timer);
   }, [totalNetCurrentValue, totalCost]);
   // saveLists moved to usePortfolioData
@@ -433,7 +479,7 @@ export default function App() {
       const rates = await MarketService._fetchForexRates();
       if (rates?.TRY) setUsdToTryRate(rates.TRY);
     } catch (e) { /* Mevcut kur kullanılır */ }
-    await refreshPortfolioPrices();
+    await refreshPortfolioPrices(portfolio, true);
     setIsRefreshingPortfolio(false);
   };
 
@@ -455,8 +501,8 @@ export default function App() {
   // createOrUpdateList and openListOptions moved to useWatchlist
 
 
-  const numInput = parseFloat(primaryInput.replace(',', '.')) || 0;
-  const numPrice = parseFloat(buyPrice.replace(',', '.')) || 0;
+  const numInput = parseFloat(primaryInput.toString().replace(',', '.')) || 0;
+  const numPrice = parseFloat(buyPrice.toString().replace(',', '.')) || 0;
   const decimals = assetType === 'CRYPTO' ? 8 : 2; 
 
   let calculatedQty = 0; let calculatedTotalAmount = 0;
@@ -556,40 +602,78 @@ export default function App() {
 
   const renderCompactItem = ({ item }) => {
     const cPrice = item.currentPrice !== undefined ? item.currentPrice : item.price;
-    const cost = item.price * item.quantity;
-    const grossValue = cPrice * item.quantity;
-    let tax = 0; if (item.type === 'TEFAS' && (grossValue - cost) > 0) tax = (grossValue - cost) * 0.175;
-    const netProfit = (grossValue - cost) - tax;
+    const avgPrice = item.price;
+    const quantity = item.quantity;
     
-    // Yüzdelik değişim para biriminden bağımsızdır, hep aynı kalır
-    const pct = cost > 0 ? (netProfit / cost) * 100 : 0;
-    const isProfit = netProfit >= 0;
+    // Hesaplamalar
+    const totalValue = cPrice * quantity;
+    const profit = (cPrice - avgPrice) * quantity;
+    const profitPercentage = avgPrice > 0 ? ((cPrice - avgPrice) / avgPrice) * 100 : 0;
+    
+    const isProfit = profit >= 0;
+    const pnlColor = isProfit ? '#00E87A' : '#FF4757';
 
-    // BÜYÜ BURADA: Kullanıcının seçtiği para birimine göre ekranda gösterilecek fiyatı hesaplıyoruz
-    const displayPrice = getConvertedValueLocal(cPrice, item.type);
+    // Logo Renkleri
+    const getLogoBg = (type) => {
+      switch (type) {
+        case 'BIST': return '#1a3a2a';
+        case 'CRYPTO': return '#3a2a1a';
+        case 'GOLD': return '#3a3a1a';
+        case 'USA': return '#1a2a3a';
+        case 'TEFAS': return '#2a1a3a';
+        default: return '#3A3A45';
+      }
+    };
+
+    const displayCurrency = currency || '₺';
 
     return (
       <TouchableOpacity 
-        style={styles.compactCard} 
+        style={{
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          paddingVertical: 16,
+          paddingHorizontal: 16,
+          minHeight: 64,
+        }} 
         activeOpacity={0.6} 
         onPress={() => { setSelectedAssetInfo(item); setSelectedAssetId(item.id); setDetailModalVisible(true); }}
       >
-        <View style={styles.compactLeft}>
-          <View style={styles.compactIconBox}>
-            <MaterialIcons name={getAssetIcon(item.type)} size={20} color={COLORS.primary} />
+        {/* SOL TARAF */}
+        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
+          <View style={{ alignItems: 'flex-start' }}>
+            <View style={{ 
+              width: 40, 
+              height: 40, 
+              borderRadius: 20, 
+              backgroundColor: getLogoBg(item.type), 
+              justifyContent: 'center', 
+              alignItems: 'center',
+              marginBottom: 6
+            }} />
+            <Text style={{ color: '#8A8A9A', fontSize: 11, fontWeight: '500' }}>
+              {displayCurrency}{cPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </Text>
           </View>
-          <View>
-            <Text style={styles.compactName}>{item.name}</Text>
-            <Text style={styles.compactSub}>{`${item.quantity.toFixed(decimals)} ${t('shares')}`}</Text>
-          </View>
+          <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '700', marginLeft: 12, marginBottom: 15 }}>
+            {item.name}
+          </Text>
         </View>
-        <View style={styles.compactRight}>
-           <Text style={styles.compactPrice}>
-             {currency}{((grossValue * (currency === '$' ? (1/usdToTryRate) : 1))).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-           </Text>
-           <Text style={[styles.compactPct, { color: isProfit ? COLORS.primary : (pct < 0 ? COLORS.error : COLORS.textSub) }]}>
-             {isProfit && pct > 0 ? '+' : ''}{pct.toFixed(2)}%
-           </Text>
+
+        {/* SAĞ TARAF */}
+        <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
+          <Text style={{ color: '#FFFFFF', fontSize: 18, fontWeight: 'bold' }}>
+            {displayCurrency}{totalValue.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+            <Text style={{ color: pnlColor, fontSize: 13, fontWeight: '700' }}>
+              {isProfit ? '+' : ''}{displayCurrency}{Math.abs(profit).toLocaleString('tr-TR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+            </Text>
+            <Text style={{ color: pnlColor, fontSize: 13, fontWeight: '700', marginLeft: 6 }}>
+              ({isProfit ? '+' : ''}{profitPercentage.toFixed(2)}%)
+            </Text>
+          </View>
         </View>
       </TouchableOpacity>
     );
@@ -646,7 +730,9 @@ export default function App() {
       <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaContext style={styles.container}>
         <StatusBar barStyle={theme === 'dark' ? "light-content" : "dark-content"} backgroundColor={COLORS.bg} />
-      
+        
+
+
       <PagerView
         ref={pagerRef}
         style={{flex: 1}}

@@ -82,7 +82,7 @@ export const AddAssetModal = ({
               {!isAddMoreMode && ( <TouchableOpacity style={styles.changeAssetBtn} onPress={() => setSelectedSearchAsset(null)}><MaterialIcons name="edit" size={16} color={COLORS.textMain} /></TouchableOpacity> )}
           </View>
 
-          {activeTab === 'PORTFOLIO' && (
+          {activeTab === 'PORTFOLIO' ? (
             <>
               <View style={styles.segmentedControl}>
                 <TouchableOpacity style={[styles.segmentBtn, inputMode === 'AMOUNT' && styles.segmentBtnActive]} onPress={() => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); setInputMode('AMOUNT'); setPrimaryInput(''); }}><Text style={[styles.segmentText, inputMode === 'AMOUNT' && styles.segmentTextActive]}>{t('modeAmount')}</Text></TouchableOpacity>
@@ -106,6 +106,18 @@ export const AddAssetModal = ({
               <TextInput style={[styles.modernInput, {height: 80, textAlignVertical: 'top'}]} placeholder="..." placeholderTextColor={COLORS.textSub} value={note} onChangeText={setNote} multiline={true} />
               <TouchableOpacity style={styles.megaSaveBtn} onPress={addAsset}><Text style={styles.megaSaveBtnText}>{t('save')}</Text></TouchableOpacity>
             </>
+          ) : (
+            <View style={{ marginTop: 20 }}>
+               <Text style={[styles.emptyText, { textAlign: 'left', marginBottom: 20 }]}>
+                 {t('addToWatchInfo') || 'Bu varlığı izleme listenize eklemek üzeresiniz.'}
+               </Text>
+               <TouchableOpacity 
+                 style={styles.megaSaveBtn} 
+                 onPress={addAsset}
+               >
+                 <Text style={styles.megaSaveBtnText}>{t('addToWatch')}</Text>
+               </TouchableOpacity>
+            </View>
           )}
         </ScrollView>
       )}
