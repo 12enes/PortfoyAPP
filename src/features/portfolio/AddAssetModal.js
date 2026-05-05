@@ -27,22 +27,47 @@ export const AddAssetModal = ({
       </View>
       
       {!selectedSearchAsset ? (
-        <View style={{flex: 1}}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll} contentContainerStyle={{gap: 10, paddingRight: 20}}>
-            {ASSET_TYPES.map(type => (
-              <TouchableOpacity key={type} style={[styles.pillBtn, assetType === type && styles.pillBtnActive]} onPress={() => handleCategoryChange(type)}>
-                <Text style={[styles.pillBtnText, assetType === type && {color: theme === 'dark' ? '#0A0A0C' : '#FFFFFF'}]}>{t(type)}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+        <>
+          <View style={{ marginBottom: 15 }}>
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false} 
+              style={styles.categoryScroll} 
+              contentContainerStyle={{ gap: 10, paddingRight: 20, alignItems: 'center' }}
+            >
+              {ASSET_TYPES.map(type => (
+                <TouchableOpacity key={type} style={[styles.pillBtn, assetType === type && styles.pillBtnActive]} onPress={() => handleCategoryChange(type)}>
+                  <Text style={[styles.pillBtnText, assetType === type && {color: theme === 'dark' ? '#0A0A0C' : '#FFFFFF'}]}>{t(type)}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
 
-          <View style={styles.searchBox}>
-            <MaterialIcons name="search" size={22} color={COLORS.textSub} style={{marginRight: 10}} />
-            <TextInput style={styles.searchInput} placeholder={t('searchAsset')} placeholderTextColor={COLORS.textSub} value={searchQuery} onChangeText={handleSearch} autoCapitalize="characters" autoCorrect={false} />
-            {searchQuery.length > 0 && ( <TouchableOpacity onPress={() => handleSearch('')}><MaterialIcons name="cancel" size={20} color={COLORS.textSub} /></TouchableOpacity> )}
+            <View style={styles.searchBox}>
+              <MaterialIcons name="search" size={22} color={COLORS.textSub} style={{marginRight: 10}} />
+              <TextInput 
+                style={styles.searchInput} 
+                placeholder={t('searchAsset')} 
+                placeholderTextColor={COLORS.textSub} 
+                value={searchQuery} 
+                onChangeText={handleSearch} 
+                autoCapitalize="characters" 
+                autoCorrect={false} 
+              />
+              {searchQuery.length > 0 && ( 
+                <TouchableOpacity onPress={() => handleSearch('')}>
+                  <MaterialIcons name="cancel" size={20} color={COLORS.textSub} />
+                </TouchableOpacity> 
+              )}
+            </View>
           </View>
+
           <FlatList 
-            data={searchResults} keyExtractor={(item, index) => item.symbol + index} showsVerticalScrollIndicator={false} contentContainerStyle={{paddingBottom: 20}} ListEmptyComponent={<Text style={styles.emptyText}>{t('noResults')}</Text>}
+            style={{ flex: 1 }}
+            data={searchResults} 
+            keyExtractor={(item, index) => item.symbol + index} 
+            showsVerticalScrollIndicator={false} 
+            contentContainerStyle={{paddingBottom: 20}} 
+            ListEmptyComponent={<Text style={styles.emptyText}>{t('noResults')}</Text>}
             renderItem={({item}) => {
               const isAdded = activeTab === 'MARKET' ? (
                 marketTabMode === 'GRID' 
@@ -65,13 +90,13 @@ export const AddAssetModal = ({
                     {isAdded ? (
                       <MaterialIcons name="check-circle" size={20} color={COLORS.primary} />
                     ) : (
-                      <Text style={{color: COLORS.textSub, fontSize: 13, fontWeight: 'bold'}}>{item.price ? `${getCurrencySymbol(assetType)}${item.price}` : ''}</Text>
+                      <Text style={{color: COLORS.textSub, fontSize: 13, fontWeight: 'bold'}}>{item.price ? `${getCurrencySymbol(assetType, item.symbol)}${item.price}` : ''}</Text>
                     )}
                 </TouchableOpacity>
               );
             }}
           />
-        </View>
+        </>
       ) : (
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{paddingBottom: 40}}>
           <View style={styles.selectedAssetCard}>
@@ -93,7 +118,7 @@ export const AddAssetModal = ({
               </View>
 
               <View style={styles.smartInputContainer}>
-                {inputMode === 'AMOUNT' && <Text style={styles.smartInputCurrency}>{getCurrencySymbol(assetType)}</Text>}
+                {inputMode === 'AMOUNT' && <Text style={styles.smartInputCurrency}>{getCurrencySymbol(assetType, selectedSearchAsset.symbol)}</Text>}
                 <TextInput style={styles.smartInput} placeholder="0" placeholderTextColor={COLORS.border} value={primaryInput} onChangeText={setPrimaryInput} keyboardType="numeric" autoFocus={true} />
                 {inputMode === 'QUANTITY' && <Text style={styles.smartInputCurrency}>{selectedSearchAsset.symbol}</Text>}
               </View>
@@ -101,10 +126,10 @@ export const AddAssetModal = ({
               <View style={styles.smartFeedbackBox}>
                 <MaterialIcons name="auto-awesome" size={16} color={COLORS.primary} style={{marginRight: 6}} />
                 <Text style={styles.smartFeedbackText}>
-                  {inputMode === 'AMOUNT' ? `${t('approx')} ${calculatedQty > 0 ? calculatedQty.toFixed(decimals) : '0'} ${selectedSearchAsset.symbol} ${t('calcQty')}` : `${t('calcTotal')}: ${getCurrencySymbol(assetType)}${calculatedTotalAmount > 0 ? calculatedTotalAmount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '0.00'}`}
+                  {inputMode === 'AMOUNT' ? `${t('approx')} ${calculatedQty > 0 ? calculatedQty.toFixed(decimals) : '0'} ${selectedSearchAsset.symbol} ${t('calcQty')}` : `${t('calcTotal')}: ${getCurrencySymbol(assetType, selectedSearchAsset.symbol)}${calculatedTotalAmount > 0 ? calculatedTotalAmount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '0.00'}`}
                 </Text>
               </View>
-              <View style={{marginTop: 10}}><Text style={styles.inputLabel}>{t('buyPrice')} ({getCurrencySymbol(assetType)})</Text><TextInput style={styles.modernInput} placeholder="0.00" placeholderTextColor={COLORS.textSub} value={buyPrice} onChangeText={setBuyPrice} keyboardType="numeric" /></View>
+              <View style={{marginTop: 10}}><Text style={styles.inputLabel}>{t('buyPrice')} ({getCurrencySymbol(assetType, selectedSearchAsset.symbol)})</Text><TextInput style={styles.modernInput} placeholder="0.00" placeholderTextColor={COLORS.textSub} value={buyPrice} onChangeText={setBuyPrice} keyboardType="numeric" /></View>
               <Text style={[styles.inputLabel, {marginTop: 25}]}>{t('note')}</Text>
               <TextInput style={[styles.modernInput, {height: 80, textAlignVertical: 'top'}]} placeholder="..." placeholderTextColor={COLORS.textSub} value={note} onChangeText={setNote} multiline={true} />
               <TouchableOpacity style={styles.megaSaveBtn} onPress={addAsset}><Text style={styles.megaSaveBtnText}>{t('save')}</Text></TouchableOpacity>

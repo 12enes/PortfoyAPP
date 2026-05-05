@@ -11,7 +11,7 @@ export const PriceUpdateModal = ({
       <Text style={styles.modalTitle}>{t('updatePrice')}</Text>
       <TextInput 
         style={styles.input} 
-        placeholder={`${t('currentPrice')} (${currentDetailAsset ? getCurrencySymbol(currentDetailAsset.type) : '$'})`} 
+        placeholder={`${t('currentPrice')} (${currentDetailAsset ? getCurrencySymbol(currentDetailAsset.type, currentDetailAsset.symbol || currentDetailAsset.name) : '$'})`} 
         placeholderTextColor={COLORS.textSub} 
         value={currentPriceInput} 
         onChangeText={setCurrentPriceInput} 

@@ -3,6 +3,7 @@ import { View, Text, SectionList, TouchableOpacity, RefreshControl, ScrollView, 
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import PerformanceChartSection from '../../../PerformanceChartSection';
+import AssetIcon from '../../components/AssetIcon';
 
 export const PortfolioScreen = ({
   styles, COLORS, portfolio, getGroupedData, renderCompactItem, t,
@@ -52,9 +53,6 @@ export const PortfolioScreen = ({
                     </Text>
                   </TouchableOpacity>
                 </View>
-                <TouchableOpacity onPress={() => setSettingsVisible(true)} style={{ marginTop: 5 }}>
-                  <MaterialIcons name="settings" size={24} color={COLORS.textSub} />
-                </TouchableOpacity>
               </View>
 
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
@@ -112,8 +110,10 @@ export const PortfolioScreen = ({
                 ))}
               </View>
 
-              {/* REFINED DIVIDER */}
-              <View style={{ height: 1, backgroundColor: '#3A3A45', marginHorizontal: 30, marginTop: 25 }} />
+              {/* REFINED DIVIDER - Sadece grafik kapalıyken gösterilir */}
+              {!isChartVisible && (
+                <View style={{ height: 1, backgroundColor: '#3A3A45', marginHorizontal: 30, marginTop: 25 }} />
+              )}
             </View>
 
             {isChartVisible && (
@@ -189,9 +189,7 @@ export const PortfolioScreen = ({
               alignItems: 'center', 
               paddingVertical: 16, 
               paddingHorizontal: 20, 
-              borderTopWidth: 1, 
-              borderTopColor: COLORS.border,
-              marginTop: 20,
+              marginTop: 10,
               marginBottom: 100
             }}
             onPress={() => setCashModalVisible(true)}
@@ -203,13 +201,21 @@ export const PortfolioScreen = ({
                 {lang === 'tr' ? 'NAKİT VARLIK' : 'CASH BALANCE'}
               </Text>
             </View>
-            <View style={{ alignItems: 'flex-end' }}>
-              <Text style={{ color: COLORS.textMain, fontSize: 16, fontWeight: '700' }}>
-                {currency === '$' ? (cashBalance / usdToTryRate).toLocaleString('en-US', { style: 'currency', currency: 'USD' }) : `₺${cashBalance.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-              </Text>
-              <Text style={{ color: COLORS.textSub, fontSize: 12, marginTop: 2 }}>
-                {currency === '$' ? `₺${cashBalance.toLocaleString('tr-TR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : `$${(cashBalance / usdToTryRate).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-              </Text>
+            <View style={{ alignItems: 'flex-end', gap: 8 }}>
+              {/* TRY Kasa */}
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <AssetIcon asset={{ symbol: 'TRY', type: 'FOREX' }} size={18} />
+                <Text style={{ color: COLORS.textMain, fontSize: 14, fontWeight: '700', marginLeft: 8 }}>
+                  {cashBalance.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </Text>
+              </View>
+              {/* USD Kasa */}
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <AssetIcon asset={{ symbol: 'USD', type: 'FOREX' }} size={18} />
+                <Text style={{ color: COLORS.textMain, fontSize: 14, fontWeight: '700', marginLeft: 8 }}>
+                  {(cashBalance / usdToTryRate).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </Text>
+              </View>
             </View>
           </TouchableOpacity>
         )}

@@ -195,7 +195,7 @@ export const getPortfolioPerformanceByTimeframe = (totalNetCurrentValue, chartHi
 };
 
 // 8. TWR (Zaman Ağırlıklı Getiri) ve Varlık Akışı Hesaplayıcısı (MIDAS ALGORİTMASI v2)
-export const calculateAdvancedChartData = (chartHistory, timeFilter, totalNetCurrentValue, totalUnrealizedPnL, unrealizedPnLPct) => {
+export const calculateAdvancedChartData = (chartHistory, timeFilter, totalNetCurrentValue, totalUnrealizedPnL, unrealizedPnLPct, portfolio = [], usdToTryRate = 1) => {
     // Boş portföy → düz çizgi veya sıfır dön
     if (!chartHistory || chartHistory.length === 0) {
         // Portföy değeri varsa tek noktalı düz çizgi oluştur
@@ -268,7 +268,40 @@ export const calculateAdvancedChartData = (chartHistory, timeFilter, totalNetCur
     const hasEnoughHistory = oldestRecord && oldestRecord.timestamp <= cutoff;
 
     if (!hasEnoughHistory) {
-        // Yeterli geçmiş yok → ALL ile aynı değerleri kullan
+        // 1D için özel hesap: Henüz geçmiş veri birikmemiş olsa bile varlık bazlı değişimleri kullan
+        if (timeFilter === '1D' && portfolio && portfolio.length > 0) {
+            const dailyAmount = portfolio.reduce((total, asset) => {
+                const pct = asset.changePercent || 0;
+                const changeDecimal = pct / 100;
+                const livePrice = asset.currentPrice !== undefined ? asset.currentPrice : asset.price;
+                const prevPrice = changeDecimal !== -1 
+                    ? livePrice / (1 + changeDecimal) 
+                    : livePrice;
+                const gain = (livePrice - prevPrice) * (asset.quantity || 0);
+                
+                // Kur çevrimi (Daha önce isUsdType fonksiyonunu tanımlamıştık, onu kullanalım)
+                const rate = isUsdType(asset.type) ? (usdToTryRate || 1) : 1;
+                return total + (gain * rate);
+            }, 0);
+            
+            const totalCost = totalNetCurrentValue - totalUnrealizedPnL;
+            const dailyPct = totalCost > 0 ? (dailyAmount / totalCost) * 100 : 0;
+            
+            const assetFlowData = workingHistory.map(d => ({
+                date: d.timestamp || Date.now(),
+                value: (typeof d.value === 'number' && !isNaN(d.value)) ? Math.max(0, d.value) : 0,
+                cost: (typeof d.cost === 'number' && !isNaN(d.cost)) ? Math.max(0, d.cost) : 0
+            }));
+            const performanceData = _calculateTWR(assetFlowData);
+
+            return {
+                assetFlowData,
+                performanceData,
+                pnl: { amount: dailyAmount, pct: dailyPct }
+            };
+        }
+
+        // Yeterli geçmiş yok → ALL ile aynı değerleri kullan (Diğer timeframe'ler için)
         const assetFlowData = workingHistory.map(d => ({
             date: d.timestamp || Date.now(),
             value: (typeof d.value === 'number' && !isNaN(d.value)) ? Math.max(0, d.value) : 0,
@@ -311,20 +344,40 @@ export const calculateAdvancedChartData = (chartHistory, timeFilter, totalNetCur
     const performanceData = _calculateTWR(assetFlowData);
 
     // 3. Kâr / Zarar Hesaplaması — Dönemsel
-    const historicalValue = assetFlowData[0]?.value || 0;
-    const historicalCost = assetFlowData[0]?.cost || 0;
-
     let amount = 0;
     let pct = 0;
 
-    if (historicalValue <= 0) {
-        amount = totalUnrealizedPnL;
-        pct = unrealizedPnLPct;
+    if (timeFilter === '1D') {
+        // 1D için: Snapshot yerine her varlığın changePercent değerini kullanarak günlük kazancı hesapla
+        let dailyAmount = 0;
+        portfolio.forEach(asset => {
+            const changePct = asset.changePercent || 0;
+            const livePrice = asset.currentPrice !== undefined ? asset.currentPrice : asset.price;
+            const rate = isUsdType(asset.type) ? usdToTryRate : 1;
+
+            // Önceki Fiyat = Güncel Fiyat / (1 + Değişim%)
+            const prevPrice = livePrice / (1 + (changePct / 100));
+            const dailyGainNative = (livePrice - prevPrice) * asset.quantity;
+            dailyAmount += dailyGainNative * rate;
+        });
+
+        const totalCost = totalNetCurrentValue - totalUnrealizedPnL;
+        amount = dailyAmount;
+        // Yüzdeyi toplam maliyete veya dünkü toplam değere göre hesaplayabiliriz. 
+        // İstediğiniz üzere: (dailyAmount / totalCost) * 100
+        pct = totalCost > 0 ? (dailyAmount / totalCost) * 100 : 0;
     } else {
-        // Şimdiki değer - dönem başındaki değer = dönemsel kazanç
-        amount = totalNetCurrentValue - historicalValue;
-        // TWR yüzdesini kullan (para giriş/çıkışından arındırılmış)
-        pct = performanceData.length > 0 ? performanceData[performanceData.length - 1]?.value || 0 : 0;
+        // Diğer zaman dilimleri için (1W, 1M vb.) mevcut TWR mantığı
+        const historicalValue = assetFlowData[0]?.value || 0;
+
+        if (historicalValue <= 0) {
+            amount = totalUnrealizedPnL;
+            pct = unrealizedPnLPct;
+        } else {
+            amount = totalNetCurrentValue - historicalValue;
+            // TWR yüzdesini kullan (para giriş/çıkışından arındırılmış)
+            pct = performanceData.length > 0 ? performanceData[performanceData.length - 1]?.value || 0 : 0;
+        }
     }
 
     return { assetFlowData, performanceData, pnl: { amount, pct } };

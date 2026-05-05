@@ -22,11 +22,8 @@ export const DetailModal = ({
           
           <View style={[styles.detailChartBox, {padding: 0, justifyContent: 'flex-start'}]}>
             <Text style={[styles.detailCurrentPrice, {padding: 20, paddingBottom: 0}]}>
-              {activeTab === 'PORTFOLIO' ? currency : getCurrencySymbol(currentDetailAsset.type)}
-              {activeTab === 'PORTFOLIO' 
-                ? getConvertedValueLocal(currentDetailAsset.currentPrice || currentDetailAsset.price, currentDetailAsset.type).toLocaleString('en-US', { minimumFractionDigits: 2 })
-                : (currentDetailAsset.currentPrice || currentDetailAsset.price).toLocaleString('en-US', { minimumFractionDigits: 2 })
-              }
+              {getCurrencySymbol(currentDetailAsset.type, currentDetailAsset.symbol || currentDetailAsset.name)}
+              {(currentDetailAsset.currentPrice || currentDetailAsset.price).toLocaleString('en-US', { minimumFractionDigits: 2 })}
             </Text>
             <View style={{flex: 1, justifyContent: 'flex-end', overflow: 'hidden'}}>
                <Svg width="100%" height="80" viewBox="0 0 100 80" preserveAspectRatio="none">

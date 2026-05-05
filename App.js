@@ -9,7 +9,7 @@ import PagerView from 'react-native-pager-view';
 import { LineChart } from 'react-native-gifted-charts';
 import PerformanceChartSection from './PerformanceChartSection';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { calculateAssetPnL, calculateTotalPortfolio, getTopGainersAndLosers, isUsdType, getPieChartDistribution, getPortfolioPerformanceByTimeframe, calculateAdvancedChartData } from './portfolioEngine';
+import { calculateAssetPnL, calculateTotalPortfolio, getTopGainersAndLosers, isUsdType, getPieChartDistribution, getPortfolioPerformanceByTimeframe, calculateAdvancedChartData, calculatePeriodPnL } from './portfolioEngine';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 import { DARK_THEME, LIGHT_THEME, PIE_COLORS } from './src/shared/constants/themes';
@@ -56,8 +56,17 @@ const migrateType = (type) => {
   switch(type) { case 'Hisse': return 'BIST'; case 'Fon': return 'TEFAS'; case 'Altın/Döviz': return 'GOLD'; case 'Kripto': return 'CRYPTO'; case 'ABD Hisse': return 'USA'; default: return type || 'BIST'; }
 };
 
-const getCurrencySymbol = (type) => {
-  switch(type) { case 'BIST': case 'TEFAS': return '₺'; case 'CRYPTO': case 'USA': case 'GOLD': default: return '$'; }
+const getCurrencySymbol = (type, symbolOrName) => {
+  // Varlık bazlı doğal para birimi tespiti
+  if (symbolOrName) {
+    const s = symbolOrName.toUpperCase();
+    // TL bazlı varlıklar (sembolde /TL varsa veya bilinen TL varlıklarsa)
+    const tlAssets = ['GRAM/TL', 'DOLAR/TL', 'EURO/TL', 'GRAM ALTIN', 'ALTIN'];
+    if (tlAssets.some(a => s.includes(a)) || s.includes('/TL')) return '₺';
+    // USD bazlı GOLD varlıkları
+    if (s.includes('XAU') || s.includes('BRENT') || s.includes('XAG') || s.includes('SILVER') || s.includes('PLATINUM') || s.includes('ONS')) return '$';
+  }
+  switch(type) { case 'BIST': case 'TEFAS': return '₺'; case 'CRYPTO': case 'USA': default: return '$'; }
 };
 
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
@@ -395,7 +404,7 @@ export default function App() {
 
   const { handleSearch, handleCategoryChange, handleAssetSelect, resetAddModal } = useSearch({
     assetType, MOCK_ASSETS, activeTab, marketTabMode, watchlist, customLists, selectedListId,
-    setSearchQuery, setSearchResults, setAssetType, setSelectedSearchAsset, setBuyPrice,
+    searchQuery, setSearchQuery, setSearchResults, setAssetType, setSelectedSearchAsset, setBuyPrice,
     setPrimaryInput, setNote, setInputMode, setIsAddMoreMode, setModalVisible,
     setWatchlist, saveLists, saveData, t, MarketService,
     setListNameInput, setEditingListId, setListError, setListModalVisible
@@ -572,7 +581,7 @@ export default function App() {
 
 // --- FAZ 3 BÜYÜSÜ: MIDAS TWR VE VARLIK AKIŞI MOTORU ---
   const { allChartData, timeframePerformance } = useMemo(() => {
-    const results = calculateAdvancedChartData(chartHistory, timeFilter, totalNetCurrentValue, totalUnrealizedPnL, unrealizedPnLPct);
+    const results = calculateAdvancedChartData(chartHistory, timeFilter, totalNetCurrentValue, totalUnrealizedPnL, unrealizedPnLPct, portfolio, usdToTryRate);
     
     return {
       allChartData: results,
@@ -606,27 +615,35 @@ export default function App() {
     const avgPrice = item.price;
     const quantity = item.quantity;
     
-    // Hesaplamalar
-    const totalValue = cPrice * quantity;
-    const profit = (cPrice - avgPrice) * quantity;
-    const profitPercentage = avgPrice > 0 ? ((cPrice - avgPrice) / avgPrice) * 100 : 0;
+    // Birim fiyat için doğal para birimi (varlığın kendi birimi)
+    const nativeCur = getCurrencySymbol(item.type, item.symbol || item.name);
     
-    const isProfit = profit >= 0;
+    // Portföy toplam değeri ve kâr/zarar HER ZAMAN TL
+    const isNativeUsd = nativeCur === '$';
+    const rateTL = isNativeUsd ? usdToTryRate : 1;
+    const totalValueTL = cPrice * quantity * rateTL;
+    
+    let profitTL = 0;
+    let profitPercentage = 0;
+
+    if (timeFilter === '1D') {
+      // 1D: Varlığın o günkü piyasa değişimini baz al
+      profitPercentage = item.changePercent || 0;
+      // Günlük Kâr = (Fiyat * Değişim / 100) * Miktar * Kur
+      profitTL = (cPrice * (profitPercentage / 100)) * quantity * rateTL;
+    } else if (timeFilter === 'ALL') {
+      // ALL: Alış fiyatından itibaren toplam kâr/zarar
+      profitTL = (cPrice - avgPrice) * quantity * rateTL;
+      profitPercentage = avgPrice > 0 ? ((cPrice - avgPrice) / avgPrice) * 100 : 0;
+    } else {
+      // Diğer (1W, 1M vb.): Dönemsel Kâr/Zarar motorunu kullan
+      const pnl = calculatePeriodPnL(item, cPrice, priceHistory[item.name], timeFilter, usdToTryRate);
+      profitTL = pnl.amount;
+      profitPercentage = pnl.percentage;
+    }
+    
+    const isProfit = profitTL >= 0;
     const pnlColor = isProfit ? '#00E87A' : '#FF4757';
-
-    // Logo Renkleri
-    const getLogoBg = (type) => {
-      switch (type) {
-        case 'BIST': return '#1a3a2a';
-        case 'CRYPTO': return '#3a2a1a';
-        case 'GOLD': return '#3a3a1a';
-        case 'USA': return '#1a2a3a';
-        case 'TEFAS': return '#2a1a3a';
-        default: return '#3A3A45';
-      }
-    };
-
-    const displayCurrency = currency || '₺';
 
     return (
       <TouchableOpacity 
@@ -648,7 +665,7 @@ export default function App() {
               <AssetIcon asset={item} size={40} />
             </View>
             <Text style={{ color: '#8A8A9A', fontSize: 11, fontWeight: '500' }}>
-              {displayCurrency}{cPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {nativeCur}{cPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </Text>
           </View>
           <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '700', marginLeft: 12, marginBottom: 15 }}>
@@ -656,14 +673,14 @@ export default function App() {
           </Text>
         </View>
 
-        {/* SAĞ TARAF */}
+        {/* SAĞ TARAF - Her zaman TL */}
         <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
           <Text style={{ color: '#FFFFFF', fontSize: 18, fontWeight: 'bold' }}>
-            {displayCurrency}{totalValue.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            ₺{totalValueTL.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
             <Text style={{ color: pnlColor, fontSize: 13, fontWeight: '700' }}>
-              {isProfit ? '+' : ''}{displayCurrency}{Math.abs(profit).toLocaleString('tr-TR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+              {isProfit ? '+' : ''}₺{Math.abs(profitTL).toLocaleString('tr-TR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
             </Text>
             <Text style={{ color: pnlColor, fontSize: 13, fontWeight: '700', marginLeft: 6 }}>
               ({isProfit ? '+' : ''}{profitPercentage.toFixed(2)}%)
@@ -700,7 +717,7 @@ export default function App() {
         </View>
         <Text style={styles.gridSymbol} numberOfLines={1}>{item.symbol || item.name}</Text>
         <Text style={styles.gridPrice}>
-          {cPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          {getCurrencySymbol(item.type, item.symbol || item.name)}{cPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </Text>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <MaterialIcons name={arrowIcon} size={12} color={changeColor} style={{ marginRight: 2 }} />
@@ -1127,7 +1144,7 @@ const getStyles = (COLORS) => StyleSheet.create({
   segmentTextActive: { color: COLORS.bg, fontWeight: '900' },
 
   searchModalBox: { backgroundColor: COLORS.surface, height: '90%', borderTopLeftRadius: 30, borderTopRightRadius: 30, padding: 25, paddingTop: 5, zIndex: 2 },
-  categoryScroll: { maxHeight: 50, marginBottom: 20 },
+  categoryScroll: { height: 50, marginBottom: 20 },
   pillBtn: { backgroundColor: COLORS.bg, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, marginRight: 10, height: 40, justifyContent: 'center' },
   pillBtnActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
   pillBtnText: { color: COLORS.textSub, fontSize: 13, fontWeight: 'bold' },

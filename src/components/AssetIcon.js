@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { View, Text, Image, StyleSheet } from 'react-native';
-import FundLogo from './FundLogo';
 
 // Dövizler (Forex) için flagCodes sözlüğü
 const flagCodes = {
@@ -21,6 +20,25 @@ const flagCodes = {
   'TRY': 'tr'
 };
 
+// Emtia (Commodities) için ikon sözlüğü
+const commodityLogos = {
+  'GOLD': 'https://img.icons8.com/fluency/96/gold-bars.png',
+  'GRAM': 'https://img.icons8.com/fluency/96/gold-bars.png',
+  'GLD': 'https://img.icons8.com/fluency/96/gold-bars.png',
+  'GRAM ALTIN': 'https://img.icons8.com/fluency/96/gold-bars.png',
+  'ONS': 'https://img.icons8.com/fluency/96/gold-bars.png',
+  'ONS ALTIN': 'https://img.icons8.com/fluency/96/gold-bars.png',
+  'ALTIN': 'https://img.icons8.com/fluency/96/gold-bars.png',
+  'XAU': 'https://img.icons8.com/fluency/96/gold-bars.png',
+  'SILVER': 'https://img.icons8.com/fluency/96/silver-bars.png',
+  'GÜMÜŞ': 'https://img.icons8.com/fluency/96/silver-bars.png',
+  'XAG': 'https://img.icons8.com/fluency/96/silver-bars.png',
+  'BRENT': 'https://img.icons8.com/fluency/96/oil-industry.png',
+  'PETROL': 'https://img.icons8.com/fluency/96/oil-industry.png',
+  'PLATINUM': 'https://img.icons8.com/color/96/diamond.png',
+  'PLATİN': 'https://img.icons8.com/color/96/diamond.png'
+};
+
 /**
  * AssetIcon Component - "Silent Luxury" Design
  * Dynamically fetches crypto/stock icons or renders a premium fallback.
@@ -39,7 +57,6 @@ const AssetIcon = ({ asset, size = 40 }) => {
   }
 
   let imageUrl = null;
-  let useFundLogo = false;
 
   // Dinamik URL Mantık Motoru
   if (currentType === 'CRYPTO') {
@@ -48,9 +65,8 @@ const AssetIcon = ({ asset, size = 40 }) => {
     imageUrl = `https://financialmodelingprep.com/image-stock/${cleanSymbol}.png`;
   } else if (currentType === 'BIST') {
     imageUrl = `https://cdn.jsdelivr.net/gh/ahmeterenodaci/Istanbul-Stock-Exchange--BIST--including-symbols-and-logos/logos/${cleanSymbol.toUpperCase()}.png`;
-  } else if (currentType === 'TEFAS') {
-    useFundLogo = true;
-    imageUrl = 'tefas_placeholder'; // Condition'ı geçmek için
+  } else if (commodityLogos[cleanSymbol] || commodityLogos[symbol.toUpperCase()]) {
+    imageUrl = commodityLogos[cleanSymbol] || commodityLogos[symbol.toUpperCase()];
   } else if (currentType === 'FOREX' || symbol.includes('/TRY') || symbol.includes('/TL')) {
     const code = flagCodes[cleanSymbol];
     if (code) imageUrl = `https://flagcdn.com/w160/${code}.png`;
@@ -59,10 +75,14 @@ const AssetIcon = ({ asset, size = 40 }) => {
   const renderFallback = () => {
     // Normalde 2 harf alıyoruz
     let fallbackText = cleanSymbol.substring(0, 2) || '?';
+    let bgColor = '#1E1E1E';
+    let txtColor = '#D4AF37';
 
     // TEFAS ise fon kodunun tamamını (3 karakter) al
     if (asset.type === 'TEFAS') {
       fallbackText = cleanSymbol.substring(0, 3);
+      bgColor = '#0A2540'; // Derin TEFAS Mavisi (Silent Luxury)
+      txtColor = '#FFFFFF';
     }
 
     if (asset.type === 'GOLD' || symbol.toUpperCase() === 'ALTIN' || symbol.toUpperCase() === 'XAU' || cleanSymbol === 'GRAM') {
@@ -74,19 +94,16 @@ const AssetIcon = ({ asset, size = 40 }) => {
     return (
       <View style={[
         styles.fallbackContainer, 
-        { width: size, height: size, borderRadius: size / 2 }
+        { width: size, height: size, borderRadius: size / 2, backgroundColor: bgColor }
       ]}>
-        <Text style={[styles.fallbackText, { fontSize: fallbackText.length > 2 ? size * 0.28 : size * 0.35 }]}>
+        <Text style={[styles.fallbackText, { fontSize: fallbackText.length > 2 ? size * 0.28 : size * 0.35, color: txtColor }]}>
           {fallbackText}
         </Text>
       </View>
     );
   };
 
-  if ((imageUrl || useFundLogo) && !imageError) {
-    if (useFundLogo) {
-      return <FundLogo fund={asset} style={{ width: size, height: size, borderRadius: size / 2 }} />;
-    }
+  if (imageUrl && !imageError) {
     return (
       <Image
         source={{ uri: imageUrl }}
