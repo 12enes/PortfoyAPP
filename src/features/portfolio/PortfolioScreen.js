@@ -4,26 +4,126 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import PerformanceChartSection from '../../../PerformanceChartSection';
 import AssetIcon from '../../components/AssetIcon';
+import { calculatePeriodPnL } from '../../../portfolioEngine';
+
+const getCurrencySymbol = (type, symbolOrName) => {
+  if (symbolOrName) {
+    const s = symbolOrName.toUpperCase();
+    const tlAssets = ['GRAM/TL', 'DOLAR/TL', 'EURO/TL', 'GRAM ALTIN', 'ALTIN'];
+    if (tlAssets.some(a => s.includes(a)) || s.includes('/TL')) return '₺';
+    if (s.includes('XAU') || s.includes('BRENT') || s.includes('XAG') || s.includes('SILVER') || s.includes('PLATINUM') || s.includes('ONS')) return '$';
+  }
+  switch(type) { 
+    case 'BIST': case 'TEFAS': return '₺'; 
+    case 'CRYPTO': return '$'; 
+    case 'USA': return '$'; 
+    case 'GOLD': 
+      if (symbolOrName && symbolOrName.includes('USD')) return '$';
+      return '₺';
+    case 'FOREX': return '₺';
+    default: return '₺'; 
+  }
+};
 
 export const PortfolioScreen = ({
-  styles, COLORS, portfolio, getGroupedData, renderCompactItem, t,
+  styles, COLORS, portfolio, getGroupedData, t,
   isRefreshingPortfolio, onRefreshPortfolio, chartViewMode, setChartViewMode,
   lang, stableChartData, totalNetCurrentValue, usdToTryRate, timeframePerformance,
   timeFilter, setTimeFilter, currency, handleNetWorthPressIn, handleNetWorthPressOut,
   setDistributionModalVisible, netWorthScale, unrealizedIcon, unrealizedColor,
   unrealizedPrefix, totalUnrealizedPnL, unrealizedPnLPct, handleProfitPressIn,
   handleProfitPressOut, setProfitModalVisible, profitScale, setCashModalVisible,
-  cashBalance, setSettingsVisible, setSelectedPieSlice, AnimatedTouchableOpacity
+  cashBalance, setSettingsVisible, setSelectedPieSlice, AnimatedTouchableOpacity,
+  priceHistory, setSelectedAssetInfo, setSelectedAssetId, setDetailModalVisible
 }) => {
   const insets = useSafeAreaInsets();
-  const [isChartVisible, setIsChartVisible] = useState(true);
+  const [isChartVisible, setIsChartVisible] = useState(false);
+
+  const renderItemLocal = ({ item }) => {
+    const cPrice = item.currentPrice !== undefined ? item.currentPrice : item.price;
+    const avgPrice = item.price;
+    const quantity = item.quantity;
+    const nativeCur = getCurrencySymbol(item.type, item.symbol || item.name);
+    const isNativeUsd = nativeCur === '$';
+    const rateTL = isNativeUsd ? usdToTryRate : 1;
+    const totalValueTL = cPrice * quantity * rateTL;
+    
+    let profitTL = 0;
+    let profitPercentage = 0;
+
+    if (timeFilter === '1D') {
+      const prevClose = item.previousClose;
+      
+      if (prevClose && prevClose !== 0) {
+        const cPrice = item.currentPrice || 0;
+        const qty = item.quantity || 0;
+        const rate = (item.type === 'USA' || item.type === 'CRYPTO')
+          ? (usdToTryRate || 1) : 1;
+        
+        profitTL = (cPrice - prevClose) * qty * rate;
+        profitPercentage = ((cPrice - prevClose) / prevClose) * 100;
+      } else {
+        // previousClose yoksa changePercent kullan
+        profitPercentage = item.changePercent || 0;
+        profitTL = (profitPercentage / 100) * 
+          (item.currentPrice || 0) * 
+          (item.quantity || 0) * (isNativeUsd ? usdToTryRate : 1);
+      }
+    } else if (timeFilter === 'ALL') {
+      profitPercentage = avgPrice > 0 ? ((cPrice - avgPrice) / avgPrice) * 100 : 0;
+      profitTL = (cPrice - avgPrice) * quantity * rateTL;
+    } else {
+      const pnl = calculatePeriodPnL(item, cPrice, priceHistory?.[item.name], timeFilter, usdToTryRate);
+      profitTL = pnl.amount;
+      profitPercentage = pnl.percentage;
+    }
+    
+    const isProfit = profitTL >= 0;
+    const pnlColor = isProfit ? '#00E87A' : '#FF4757';
+
+    return (
+      <TouchableOpacity 
+        style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 16, paddingHorizontal: 16, minHeight: 64 }} 
+        activeOpacity={0.6} 
+        onPress={() => { setSelectedAssetInfo(item); setSelectedAssetId(item.id); setDetailModalVisible(true); }}
+      >
+        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
+          <View style={{ alignItems: 'flex-start' }}>
+            <View style={{ marginBottom: 6 }}>
+              <AssetIcon asset={item} size={40} />
+            </View>
+            <Text style={{ color: '#8A8A9A', fontSize: 11, fontWeight: '500' }}>
+              {nativeCur}{cPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </Text>
+          </View>
+          <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '700', marginLeft: 12, marginBottom: 15 }}>
+            {item.name}
+          </Text>
+        </View>
+
+        <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
+          <Text style={{ color: '#FFFFFF', fontSize: 18, fontWeight: 'bold' }}>
+            ₺{totalValueTL.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+            <Text style={{ color: pnlColor, fontSize: 13, fontWeight: '700' }}>
+              {isProfit ? '+' : ''}₺{Math.abs(profitTL).toLocaleString('tr-TR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+            </Text>
+            <Text style={{ color: pnlColor, fontSize: 13, fontWeight: '700', marginLeft: 6 }}>
+              ({isProfit ? '+' : ''}{profitPercentage.toFixed(2)}%)
+            </Text>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <View key="0" collapsable={false} style={{ flex: 1 }}>
       <SectionList
         sections={getGroupedData(portfolio)}
         keyExtractor={item => item.id}
-        renderItem={renderCompactItem}
+        renderItem={renderItemLocal}
         renderSectionHeader={({ section: { title } }) => ( <Text style={styles.categoryTitle}>{t(title)}</Text> )}
         ItemSeparatorComponent={() => (
           <View style={{ height: 1, backgroundColor: 'rgba(58, 58, 69, 0.4)', marginHorizontal: 16 }} />

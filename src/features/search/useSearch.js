@@ -6,7 +6,8 @@ export const useSearch = (deps) => {
     searchQuery, setSearchQuery, setSearchResults, setAssetType, setSelectedSearchAsset, setBuyPrice,
     setPrimaryInput, setNote, setInputMode, setIsAddMoreMode, setModalVisible,
     setWatchlist, saveLists, saveData, t, MarketService,
-    setListNameInput, setEditingListId, setListError, setListModalVisible
+    setListNameInput, setEditingListId, setListError, setListModalVisible,
+    livePriceMap
   } = deps;
 
   // Debounce Effect: searchQuery değiştikçe 300ms sonra gerçek aramayı tetikler
@@ -15,19 +16,27 @@ export const useSearch = (deps) => {
       if (searchQuery) {
         performSearch(searchQuery);
       } else {
-        setSearchResults(MOCK_ASSETS[assetType] || []);
+        const enriched = (MOCK_ASSETS[assetType] || []).map(a => ({
+          ...a,
+          price: livePriceMap[a.symbol] || 0
+        }));
+        setSearchResults(enriched);
       }
     }, 300);
     return () => clearTimeout(timer);
-  }, [searchQuery, assetType]);
+  }, [searchQuery, assetType, livePriceMap]);
 
   const handleSearch = (text) => {
     setSearchQuery(text);
-    // Hızlı sonuç için mock filtrelemeyi anında yapalım
+    // Hızlı sonuç için mock filtrelemeyi anında yapalım + Canlı fiyatlarla zenginleştir
     const mockFiltered = (MOCK_ASSETS[assetType] || []).filter(a => 
       a.name.toLowerCase().includes(text.toLowerCase()) || 
       a.symbol.toLowerCase().includes(text.toLowerCase())
-    );
+    ).map(a => ({
+      ...a,
+      // Sadece canlı haritada varsa fiyatı göster, yoksa 0 yap (ekranda gizlensin)
+      price: livePriceMap[a.symbol] || 0
+    }));
     setSearchResults(mockFiltered);
   };
 
@@ -103,6 +112,12 @@ export const useSearch = (deps) => {
           ]);
         }
       }
+      
+      // Sonuçları canlı fiyatlarla tekrar harmanla
+      setSearchResults(prev => prev.map(a => ({
+        ...a,
+        price: livePriceMap[a.symbol] || a.price
+      })));
     } catch (e) {
       console.log('Arama hatası:', e.message);
     }
@@ -111,15 +126,34 @@ export const useSearch = (deps) => {
   const handleCategoryChange = (cat) => {
     setAssetType(cat);
     setSearchQuery('');
-    setSearchResults(MOCK_ASSETS[cat]);
+    // Kategori değişince mock verileri sadece canlı fiyatlarla göster
+    const enriched = (MOCK_ASSETS[cat] || []).map(a => ({
+      ...a,
+      price: livePriceMap[a.symbol] || 0
+    }));
+    setSearchResults(enriched);
   };
 
-  const handleAssetSelect = (asset) => {
+  const handleAssetSelect = async (asset) => {
     setSelectedSearchAsset(asset);
-    setBuyPrice(asset.price ? asset.price.toString() : '');
+    
+    // Önce bildiğimiz en iyi fiyatı koy
+    const bestPrice = livePriceMap[asset.symbol] || asset.price || 0;
+    setBuyPrice(bestPrice > 0 ? bestPrice.toString() : '');
+    
     setPrimaryInput('');
     setNote('');
     setInputMode('AMOUNT');
+
+    // ARKA PLANDA: En güncel fiyatı çek ve güncelle (eğer mümkünse)
+    try {
+      const freshAsset = await MarketService.fetchAsset(asset);
+      if (freshAsset && freshAsset.currentPrice) {
+        setBuyPrice(freshAsset.currentPrice.toString());
+      }
+    } catch (e) {
+      console.log("Live price fetch failed:", e.message);
+    }
   };
 
   const resetAddModal = () => { 

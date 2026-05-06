@@ -10,10 +10,11 @@ export const usePortfolio = (deps) => {
     saveData, saveLists, logTransaction, resetAddModal,
     setModalVisible, setSellModalVisible, setDetailModalVisible,
     setPrimaryInput, setBuyPrice, setNote, setSellQuantityInput, setCurrentPriceInput,
-    t, MarketService
+    t, MarketService, onRefreshMarket
   } = deps;
 
   const addAsset = async () => {
+    const symbol = selectedSearchAsset?.symbol || primaryInput;
     if (!selectedSearchAsset) return;
 
     // PORTFOLIO modunda zorunlu alan kontrolü
@@ -87,6 +88,18 @@ export const usePortfolio = (deps) => {
       logTransaction(t('buy'), finalSymbol, finalQty, finalPrice, 0, assetType);
     } else {
       // MARKET / WATCHLIST LOGIC
+      
+      // Her durumda ana Watchlist'e ekle (Eğer yoksa) - Bu fiyat zenginleştirmesi için gereklidir
+      const existingIndex = watchlist.findIndex(a => a.name === finalSymbol);
+      if (existingIndex === -1) {
+        const up = [{ id: Math.random().toString(), name: finalSymbol, type: assetType, price: finalPrice, currentPrice: liveMarketPrice, changePercent: 0 }, ...watchlist];
+        setWatchlist(up);
+        saveData('@watchlist', up);
+        // Varlık eklenince hemen fiyatı güncelle
+        setTimeout(() => onRefreshMarket(), 100);
+      }
+
+      // Eğer bir özel liste seçiliyse oraya da ekle
       if (selectedListId) {
         const updated = customLists.map(l => 
           l.id === selectedListId 
@@ -94,13 +107,6 @@ export const usePortfolio = (deps) => {
             : l
         );
         saveLists(updated);
-      } else {
-        const existingIndex = watchlist.findIndex(a => a.name === finalSymbol);
-        if (existingIndex === -1) {
-          const up = [{ id: Math.random().toString(), name: finalSymbol, type: assetType, price: finalPrice, currentPrice: liveMarketPrice, changePercent: 0 }, ...watchlist];
-          setWatchlist(up);
-          saveData('@watchlist', up);
-        }
       }
     }
 

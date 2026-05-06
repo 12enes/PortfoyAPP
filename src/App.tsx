@@ -5,7 +5,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import { Provider, useDispatch, useSelector } from 'react-redux';
 import PagerView from 'react-native-pager-view';
 import { MaterialIcons } from '@expo/vector-icons';
-import MarketScreen from './features/portfolio/MarketScreen';
+import { MarketScreen } from './features/market/MarketScreen';
 import { store } from './app/store';
 import { hydratePortfolio } from './features/portfolio/portfolioSlice';
 import { hydrateSettings } from './features/settings/settingsSlice';

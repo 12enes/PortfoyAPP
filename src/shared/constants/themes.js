@@ -25,4 +25,9 @@ export const LIGHT_THEME = {
   bottomNavBg: 'rgba(255, 255, 255, 0.95)'
 };
 
-export const PIE_COLORS = ['#00E87A', '#3A86FF', '#8338EC', '#FFBE0B', '#FF4757', '#8A8A9A'];
+export const PIE_COLORS = [
+  '#00E87A', '#3A86FF', '#8338EC', '#FFBE0B', '#FF4757', '#FF006E', 
+  '#FB5607', '#3A0CA3', '#4CC9F0', '#F72585', '#7209B7', '#4895EF', 
+  '#B5179E', '#560BAD', '#2EC4B6', '#FF9F1C', '#E71D36', '#011627', 
+  '#FFD166', '#06D6A0', '#EF476F', '#118AB2', '#073B4C', '#8A8A9A'
+];

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { View, Text, TouchableOpacity, FlatList, RefreshControl, TouchableWithoutFeedback, LayoutAnimation } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 
@@ -7,9 +7,59 @@ export const MarketScreen = ({
   isMarketEditMode, setIsMarketEditMode, selectedListId, setSelectedListId,
   setListNameInput, setEditingListId, setListError, setListModalVisible,
   setSettingsVisible, watchlist, renderGridItem, isRefreshing, onRefreshMarket,
-  customLists, openListOptions, lang
+  customLists, openListOptions, lang, MOCK_ASSETS, MarketService, setWatchlist
 }) => {
   const currentCustomList = customLists?.find(l => l.id === selectedListId);
+  
+  const enrichedData = useMemo(() => {
+    return (currentCustomList?.assetIds || []).map(symbolId => {
+      // Watchlist'te ara
+      const found = watchlist?.find(w => 
+        w.name === symbolId || w.symbol === symbolId || w.id === symbolId
+      );
+      if (found) return found;
+      
+      // Watchlist'te yoksa MOCK'tan tip bul
+      let foundType = 'BIST';
+      Object.entries(MOCK_ASSETS || {}).forEach(([type, arr]) => {
+        if (arr.find(a => a.symbol === symbolId || a.name === symbolId)) {
+          foundType = type;
+        }
+      });
+      
+      // Geçici obje döndür, fiyat 0 olacak
+      return {
+        id: symbolId,
+        name: symbolId,
+        symbol: symbolId,
+        type: foundType,
+        price: 0,
+        currentPrice: 0,
+        changePercent: 0,
+        isTemporary: true
+      };
+    });
+  }, [currentCustomList, watchlist, MOCK_ASSETS]);
+
+  useEffect(() => {
+    if (!selectedListId) return;
+    const missingPrices = enrichedData.filter(i => i.currentPrice === 0);
+    if (missingPrices.length > 0) {
+      MarketService.fetchMultiple(missingPrices).then(updated => {
+        if (updated && updated.length > 0) {
+          setWatchlist(prev => {
+            const newWatchlist = [...prev];
+            updated.forEach(item => {
+              if (!newWatchlist.find(w => w.name === item.name)) {
+                newWatchlist.push(item);
+              }
+            });
+            return newWatchlist;
+          });
+        }
+      }).catch(() => {});
+    }
+  }, [selectedListId, watchlist?.length]);
 
   return (
     <View key="1" collapsable={false} style={{ flex: 1 }}>
@@ -104,15 +154,15 @@ export const MarketScreen = ({
                       </TouchableOpacity>
                       <Text style={styles.listDetailTitle} numberOfLines={1}>{currentCustomList?.name || ''}</Text>
                    </View>
-                   <FlatList
-                      key={`custom-list-detail-${selectedListId}`}
-                      data={currentCustomList?.assetIds || []} 
-                      keyExtractor={item => item} 
-                      numColumns={2} 
-                      renderItem={renderGridItem} 
-                      contentContainerStyle={{ paddingHorizontal: 15, paddingBottom: 120 }}
-                      ListEmptyComponent={<View style={styles.emptyMarketContainer}><Text style={styles.emptyMarketText}>{t('emptyList')}</Text></View>}
-                   />
+                    <FlatList
+                       key={`custom-list-detail-${selectedListId}`}
+                       data={enrichedData} 
+                       keyExtractor={item => typeof item === 'string' ? item : (item.id || item.symbol)} 
+                       numColumns={2} 
+                       renderItem={renderGridItem} 
+                       contentContainerStyle={{ paddingHorizontal: 15, paddingBottom: 120 }}
+                       ListEmptyComponent={<View style={styles.emptyMarketContainer}><Text style={styles.emptyMarketText}>{t('emptyList')}</Text></View>}
+                    />
                 </View>
               )}
             </>

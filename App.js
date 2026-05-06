@@ -1,5 +1,5 @@
 import 'react-native-gesture-handler';
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { StyleSheet, Text, View, TextInput, TouchableOpacity, SectionList, Modal, Alert, SafeAreaView, ScrollView, StatusBar, KeyboardAvoidingView, Platform, FlatList, LayoutAnimation, UIManager, Animated, PanResponder, Dimensions, RefreshControl, TouchableWithoutFeedback } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -28,6 +28,7 @@ import { SwipeableModal } from './src/shared/components/SwipeableModal';
 import { SettingsModal } from './src/shared/components/SettingsModal';
 import { AddAssetModal } from './src/features/portfolio/AddAssetModal';
 import { DetailModal } from './src/features/portfolio/DetailModal';
+import { ListOptionsModal } from './src/features/watchlist/ListOptionsModal';
 import { PriceUpdateModal } from './src/features/portfolio/PriceUpdateModal';
 import { SellModal } from './src/features/portfolio/SellModal';
 import { CashModal } from './src/features/portfolio/CashModal';
@@ -60,13 +61,21 @@ const getCurrencySymbol = (type, symbolOrName) => {
   // Varlık bazlı doğal para birimi tespiti
   if (symbolOrName) {
     const s = symbolOrName.toUpperCase();
-    // TL bazlı varlıklar (sembolde /TL varsa veya bilinen TL varlıklarsa)
     const tlAssets = ['GRAM/TL', 'DOLAR/TL', 'EURO/TL', 'GRAM ALTIN', 'ALTIN'];
     if (tlAssets.some(a => s.includes(a)) || s.includes('/TL')) return '₺';
-    // USD bazlı GOLD varlıkları
     if (s.includes('XAU') || s.includes('BRENT') || s.includes('XAG') || s.includes('SILVER') || s.includes('PLATINUM') || s.includes('ONS')) return '$';
   }
-  switch(type) { case 'BIST': case 'TEFAS': return '₺'; case 'CRYPTO': case 'USA': default: return '$'; }
+  
+  switch(type) { 
+    case 'BIST': case 'TEFAS': return '₺'; 
+    case 'CRYPTO': return '$'; 
+    case 'USA': return '$'; 
+    case 'GOLD': 
+      if (symbolOrName && symbolOrName.includes('USD')) return '$';
+      return '₺';
+    case 'FOREX': return '₺';
+    default: return '₺'; 
+  }
 };
 
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
@@ -91,11 +100,12 @@ const MarketService = {
         const prices = data.resultList.map(item => item.fiyat);
         const latestPrice = prices[prices.length - 1];
         let changePct = 0;
+        let previousClose = latestPrice;
         if (prices.length > 1) {
-           const prevPrice = prices[prices.length - 2];
-           if (prevPrice > 0) changePct = ((latestPrice - prevPrice) / prevPrice) * 100;
+           previousClose = prices[prices.length - 2];
+           if (previousClose > 0) changePct = ((latestPrice - previousClose) / previousClose) * 100;
         }
-        return { price: latestPrice, changePct };
+        return { price: latestPrice, changePct, previousClose };
       }
       return null;
     } catch (e) {
@@ -114,9 +124,9 @@ const MarketService = {
       
       const meta = data.chart.result[0].meta;
       const price = meta.regularMarketPrice;
-      const prevClose = meta.chartPreviousClose;
-      const changePct = prevClose ? ((price - prevClose) / prevClose) * 100 : 0;
-      return { price, changePct };
+      const previousClose = meta.chartPreviousClose || price;
+      const changePct = previousClose ? ((price - previousClose) / previousClose) * 100 : 0;
+      return { price, changePct, previousClose };
     } catch (e) {
       console.log(`Yahoo fetch error for ${symbol}:`, e.message);
       return null;
@@ -129,7 +139,11 @@ const MarketService = {
       const res = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}USDT`);
       if (!res.ok) throw new Error(`Binance HTTP ${res.status}`);
       const data = await res.json();
-      return { price: parseFloat(data.lastPrice), changePct: parseFloat(data.priceChangePercent) };
+      return { 
+        price: parseFloat(data.lastPrice), 
+        changePct: parseFloat(data.priceChangePercent),
+        previousClose: parseFloat(data.prevClosePrice) || parseFloat(data.lastPrice)
+      };
     } catch (e) { return null; }
   },
 
@@ -139,7 +153,11 @@ const MarketService = {
       const res = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=PAXGUSDT');
       if (!res.ok) throw new Error(`Binance PAXG HTTP ${res.status}`);
       const data = await res.json();
-      return { price: parseFloat(data.lastPrice), changePct: parseFloat(data.priceChangePercent) };
+      return { 
+        price: parseFloat(data.lastPrice), 
+        changePct: parseFloat(data.priceChangePercent),
+        previousClose: parseFloat(data.prevClosePrice) || parseFloat(data.lastPrice)
+      };
     } catch (e) { return null; }
   },
 
@@ -154,7 +172,14 @@ const MarketService = {
     } catch (e) { return null; }
   },
 
-  fetchAsset: async (id) => { return {}; },
+  fetchAsset: async (asset) => { 
+    try {
+      const results = await MarketService.fetchMultiple([asset]);
+      return results[0] || asset;
+    } catch (e) {
+      return asset;
+    }
+  },
 
   fetchHistoricalPrices: async (symbol, type, daysBack = 30) => {
     return {};
@@ -167,7 +192,7 @@ const MarketService = {
     const needsTefas = assets.some(a => a.type === 'TEFAS');
     
     // 1. Kripto İstekleri
-    const cryptoSymbols = [...new Set(assets.filter(a => a.type === 'CRYPTO').map(a => a.name || a.symbol))];
+    const cryptoSymbols = [...new Set(assets.filter(a => a.type === 'CRYPTO').map(a => a.symbol || a.name))];
     const cryptoPromises = needsCrypto
       ? cryptoSymbols.map(sym => MarketService._fetchCryptoPrice(sym).then(r => [sym, r]))
       : [];
@@ -175,13 +200,13 @@ const MarketService = {
     // 2. Yahoo Finance İstekleri (BIST ve ABD)
     const yahooSymbolsMap = {}; // Ekranda görünen ad ile Yahoo sorgu adını eşleştir
     assets.filter(a => a.type === 'BIST' || a.type === 'USA' || a.symbol === 'BRENT' || a.name === 'BRENT').forEach(a => {
-      let fetchSymbol = a.name || a.symbol;
+      let fetchSymbol = a.symbol || a.name;
       if (a.type === 'BIST' && fetchSymbol && !fetchSymbol.endsWith('.IS')) {
         fetchSymbol = `${fetchSymbol}.IS`;
       } else if (fetchSymbol === 'BRENT') {
         fetchSymbol = 'BZ=F';
       }
-      yahooSymbolsMap[a.name || a.symbol] = fetchSymbol;
+      yahooSymbolsMap[a.symbol || a.name] = fetchSymbol;
     });
     
     const uniqueYahooSymbols = [...new Set(Object.values(yahooSymbolsMap))];
@@ -190,7 +215,7 @@ const MarketService = {
       : [];
 
     // 3. TEFAS İstekleri
-    const tefasSymbols = [...new Set(assets.filter(a => a.type === 'TEFAS').map(a => a.name || a.symbol))];
+    const tefasSymbols = [...new Set(assets.filter(a => a.type === 'TEFAS').map(a => a.symbol || a.name))];
     const tefasPromises = needsTefas
       ? tefasSymbols.map(sym => MarketService._fetchTefas(sym).then(r => [sym, r]))
       : [];
@@ -217,27 +242,27 @@ const MarketService = {
     const xauUsd = goldData?.price || null;
 
     const updated = assets.map(a => {
-      const sym = a.name || a.symbol;
+      const sym = a.symbol || a.name;
       
       // BIST, ABD Hisse ve BRENT Eşleştirmesi
       if (a.type === 'BIST' || a.type === 'USA' || sym === 'BRENT') {
         const querySymbol = yahooSymbolsMap[sym];
         if (dataMap[querySymbol]) {
-          const { price, changePct } = dataMap[querySymbol];
-          return { ...a, currentPrice: price, changePercent: changePct };
+          const { price, changePct, previousClose } = dataMap[querySymbol];
+          return { ...a, currentPrice: price, changePercent: changePct, previousClose };
         }
       }
 
       // Kripto Eşleştirmesi
       if (a.type === 'CRYPTO' && dataMap[sym]) {
-        const { price, changePct } = dataMap[sym];
-        return { ...a, currentPrice: price, changePercent: changePct };
+        const { price, changePct, previousClose } = dataMap[sym];
+        return { ...a, currentPrice: price, changePercent: changePct, previousClose };
       }
 
       // TEFAS Eşleştirmesi
       if (a.type === 'TEFAS' && dataMap[sym]) {
-        const { price, changePct } = dataMap[sym];
-        return { ...a, currentPrice: price, changePercent: changePct };
+        const { price, changePct, previousClose } = dataMap[sym];
+        return { ...a, currentPrice: price, changePercent: changePct, previousClose };
       }
 
       // Altın/Döviz Eşleştirmesi
@@ -245,22 +270,22 @@ const MarketService = {
         if (sym === 'DOLAR/TL' && usdTry) {
           const oldPrice = a.currentPrice || a.price;
           const pct = oldPrice > 0 ? ((usdTry - oldPrice) / oldPrice) * 100 : 0;
-          return { ...a, currentPrice: usdTry, changePercent: pct };
+          return { ...a, currentPrice: usdTry, changePercent: pct, previousClose: oldPrice };
         }
         if (sym === 'EURO/TL' && usdTry && eurUsd) {
           const eurTry = usdTry / eurUsd; 
           const oldPrice = a.currentPrice || a.price;
           const pct = oldPrice > 0 ? ((eurTry - oldPrice) / oldPrice) * 100 : 0;
-          return { ...a, currentPrice: parseFloat(eurTry.toFixed(4)), changePercent: pct };
+          return { ...a, currentPrice: parseFloat(eurTry.toFixed(4)), changePercent: pct, previousClose: oldPrice };
         }
         if (sym === 'XAU/USD' && xauUsd) {
-          return { ...a, currentPrice: xauUsd, changePercent: goldData.changePct };
+          return { ...a, currentPrice: xauUsd, changePercent: goldData.changePct, previousClose: goldData.previousClose };
         }
         if (sym === 'GRAM/TL' && xauUsd && usdTry) {
           const gramTry = (xauUsd * usdTry) / 31.1035;
           const oldPrice = a.currentPrice || a.price;
           const pct = oldPrice > 0 ? ((gramTry - oldPrice) / oldPrice) * 100 : 0;
-          return { ...a, currentPrice: parseFloat(gramTry.toFixed(2)), changePercent: pct };
+          return { ...a, currentPrice: parseFloat(gramTry.toFixed(2)), changePercent: pct, previousClose: oldPrice };
         }
       }
 
@@ -370,6 +395,8 @@ export default function App() {
   const [searchResults, setSearchResults] = useState([]);
   const [selectedSearchAsset, setSelectedSearchAsset] = useState(null);
   const [selectedPieSlice, setSelectedPieSlice] = useState(null);
+  const [listOptionsVisible, setListOptionsVisible] = useState(false);
+  const [selectedOptionList, setSelectedOptionList] = useState(null);
 
   const [inputMode, setInputMode] = useState('AMOUNT'); 
   const [primaryInput, setPrimaryInput] = useState(''); 
@@ -399,15 +426,27 @@ export default function App() {
     listNameInput, customLists, editingListId, watchlist,
     saveLists, saveData, setListModalVisible, setListNameInput,
     setEditingListId, setListError, setSelectedListId, triggerShake, t,
-    setWatchlist, setIsMarketEditMode, selectedListId
+    setWatchlist, setIsMarketEditMode, selectedListId, setListOptionsVisible, setSelectedOptionList
   });
+
+  const livePriceMap = useMemo(() => {
+    const map = {};
+    [...portfolio, ...watchlist].forEach(a => {
+      const sym = a.symbol || a.name;
+      if (sym && (a.currentPrice || a.price)) {
+        map[sym] = a.currentPrice || a.price;
+      }
+    });
+    return map;
+  }, [portfolio, watchlist]);
 
   const { handleSearch, handleCategoryChange, handleAssetSelect, resetAddModal } = useSearch({
     assetType, MOCK_ASSETS, activeTab, marketTabMode, watchlist, customLists, selectedListId,
     searchQuery, setSearchQuery, setSearchResults, setAssetType, setSelectedSearchAsset, setBuyPrice,
     setPrimaryInput, setNote, setInputMode, setIsAddMoreMode, setModalVisible,
     setWatchlist, saveLists, saveData, t, MarketService,
-    setListNameInput, setEditingListId, setListError, setListModalVisible
+    setListNameInput, setEditingListId, setListError, setListModalVisible,
+    livePriceMap // Canlı fiyat haritasını geçiyoruz
   });
 
   const handleCenterButton = () => {
@@ -428,7 +467,7 @@ export default function App() {
     saveData, saveLists, logTransaction, resetAddModal,
     setModalVisible, setSellModalVisible, setDetailModalVisible,
     setPrimaryInput, setBuyPrice, setNote, setSellQuantityInput, setCurrentPriceInput,
-    t, MarketService
+    t, MarketService, onRefreshMarket
   });
 
   useEffect(() => { loadData(); }, []);
@@ -459,15 +498,6 @@ export default function App() {
     return () => clearInterval(pollInterval);
   }, []);
 
-  // loadData moved to usePortfolioData
-
-
-  // saveData moved to usePortfolioData
-
-  // FAZ 3: GERÇEK ZAMANLI VERİ TABANI VE GÜNLÜK KAYIT MOTORU (GÜNCELLENDİ)
-  // saveDailySnapshot moved to usePortfolioData
-
-
   // Veritabanını güncel tutan motor — portföy değeri yüklendikten sonra çalışır
   useEffect(() => {
      if (totalNetCurrentValue <= 0) return; // Portföy henüz yüklenmediyse kaydetme
@@ -479,8 +509,6 @@ export default function App() {
      }, 60000);
      return () => clearInterval(timer);
   }, [totalNetCurrentValue, totalCost]);
-  // saveLists moved to usePortfolioData
-
 
   const onRefreshPortfolio = async () => {
     setIsRefreshingPortfolio(true);
@@ -493,24 +521,6 @@ export default function App() {
     setIsRefreshingPortfolio(false);
   };
 
-  // Settings functions moved to useSettings
-
-  // -----------------------------------------
-
-
-
-  // handleSearch, handleCategoryChange and handleAssetSelect moved to useSearch
-
-
-  // resetAddModal moved to useSearch
-
-
-  // handleCenterButton moved to useSearch
-
-  // YENİ: Listeyi doğrulayan, titreten ve pürüzsüz animasyonla içine sokan geliştirilmiş kayıt motoru
-  // createOrUpdateList and openListOptions moved to useWatchlist
-
-
   const numInput = parseFloat(primaryInput.toString().replace(',', '.')) || 0;
   const numPrice = parseFloat(buyPrice.toString().replace(',', '.')) || 0;
   const decimals = assetType === 'CRYPTO' ? 8 : 2; 
@@ -518,20 +528,6 @@ export default function App() {
   let calculatedQty = 0; let calculatedTotalAmount = 0;
   if (inputMode === 'AMOUNT') { calculatedTotalAmount = numInput; calculatedQty = numPrice > 0 ? (numInput / numPrice) : 0; } 
   else { calculatedQty = numInput; calculatedTotalAmount = numInput * numPrice; }
-
-  // addAsset moved to usePortfolio
-
-
-  // updateCurrentPrice moved to usePortfolio
-
-
-  // sellAsset moved to usePortfolio
-
-
-  // deleteAsset moved to usePortfolio
-
-
-  // Asset removal functions moved to useWatchlist
 
   const realizedStats = useMemo(() => {
     const now = Date.now(); let cutoff = 0;
@@ -610,7 +606,7 @@ export default function App() {
     return getPieChartDistribution(portfolio, usdToTryRate, totalNetCurrentValue, t('others'));
   }, [portfolio, usdToTryRate, totalNetCurrentValue, lang]);
 
-  const renderCompactItem = ({ item }) => {
+  const renderCompactItem = useCallback(({ item }) => {
     const cPrice = item.currentPrice !== undefined ? item.currentPrice : item.price;
     const avgPrice = item.price;
     const quantity = item.quantity;
@@ -627,10 +623,23 @@ export default function App() {
     let profitPercentage = 0;
 
     if (timeFilter === '1D') {
-      // 1D: Varlığın o günkü piyasa değişimini baz al
-      profitPercentage = item.changePercent || 0;
-      // Günlük Kâr = (Fiyat * Değişim / 100) * Miktar * Kur
-      profitTL = (cPrice * (profitPercentage / 100)) * quantity * rateTL;
+      const prevClose = item.previousClose;
+      
+      if (prevClose && prevClose !== 0) {
+        const cPrice = item.currentPrice || 0;
+        const qty = item.quantity || 0;
+        const rate = (item.type === 'USA' || item.type === 'CRYPTO')
+          ? (usdToTryRate || 1) : 1;
+        
+        profitTL = (cPrice - prevClose) * qty * rate;
+        profitPercentage = ((cPrice - prevClose) / prevClose) * 100;
+      } else {
+        // previousClose yoksa changePercent kullan
+        profitPercentage = item.changePercent || 0;
+        profitTL = (profitPercentage / 100) * 
+          (item.currentPrice || 0) * 
+          (item.quantity || 0) * (isNativeUsd ? usdToTryRate : 1);
+      }
     } else if (timeFilter === 'ALL') {
       // ALL: Alış fiyatından itibaren toplam kâr/zarar
       profitTL = (cPrice - avgPrice) * quantity * rateTL;
@@ -689,16 +698,32 @@ export default function App() {
         </View>
       </TouchableOpacity>
     );
-  };
+  }, [timeFilter, usdToTryRate, priceHistory, setSelectedAssetInfo, setSelectedAssetId, setDetailModalVisible]);
 
-  const renderGridItem = ({ item }) => {
+  const renderGridItem = useCallback(({ item }) => {
     let cPrice = 0; let pct = 0;
+    const itemSymbol = typeof item === 'string' ? item : (item.name || item.symbol);
+    const itemType = typeof item === 'object' ? item.type : null;
+
     if (marketTabMode === 'GRID') {
       cPrice = item.currentPrice !== undefined ? item.currentPrice : item.price; pct = item.changePercent || 0;
     } else {
-      let foundAsset = null; Object.values(MOCK_ASSETS).forEach(arr => { const a = arr.find(x => x.symbol === item); if (a) foundAsset = a; });
-      cPrice = foundAsset ? foundAsset.price : 0; pct = 0; 
-      item = { name: item, id: item }; 
+      let foundAsset = null;
+      if (typeof item === 'object' && item.currentPrice) {
+        cPrice = item.currentPrice;
+        pct = item.changePercent || 0;
+      } else {
+        Object.values(MOCK_ASSETS).forEach(arr => { 
+          const a = arr.find(x => x.symbol === itemSymbol || x.name === itemSymbol); 
+          if (a) foundAsset = a; 
+        });
+        cPrice = foundAsset ? foundAsset.price : 0; 
+        pct = 0;
+      }
+      item = typeof item === 'object' ? item : { 
+        name: itemSymbol, id: itemSymbol, symbol: itemSymbol,
+        type: itemType || (foundAsset ? foundAsset.type : 'BIST')
+      };
     }
 
     const isProfit = pct > 0; const isLoss = pct < 0;
@@ -709,8 +734,8 @@ export default function App() {
       <AnimatedTouchableOpacity 
         style={[styles.gridCard, isMarketEditMode && styles.gridCardEditMode, isMarketEditMode && wiggleStyle]} 
         activeOpacity={0.7} 
-        onPress={() => { if (!isMarketEditMode && marketTabMode === 'GRID') { setSelectedAssetInfo(item); setSelectedAssetId(item.id); setDetailModalVisible(true); } }}
-        onLongPress={() => { if (marketTabMode === 'GRID') setIsMarketEditMode(true); }}
+        onPress={() => { if (!isMarketEditMode && (marketTabMode === 'GRID' || marketTabMode === 'LISTS')) { setSelectedAssetInfo(item); setSelectedAssetId(item.id); setDetailModalVisible(true); } }}
+        onLongPress={() => { if (marketTabMode === 'GRID' || marketTabMode === 'LISTS') setIsMarketEditMode(true); }}
       >
         <View style={{ marginBottom: 12 }}>
           <AssetIcon asset={item} size={32} />
@@ -736,7 +761,7 @@ export default function App() {
         )}
       </AnimatedTouchableOpacity>
     );
-  };
+  }, [marketTabMode, isMarketEditMode, wiggleStyle, COLORS, styles, t, removeWatchlistAsset, removeCustomListAsset, setSelectedAssetInfo, setSelectedAssetId, setDetailModalVisible, setIsMarketEditMode]);
 
   const currentDetailAsset = (portfolio.find(a => a.id === selectedAssetId) || watchlist.find(a => a.id === selectedAssetId)) || selectedAssetInfo;
 
@@ -761,8 +786,11 @@ export default function App() {
           COLORS={COLORS}
           portfolio={portfolio}
           getGroupedData={getGroupedData}
-          renderCompactItem={renderCompactItem}
           t={t}
+          priceHistory={priceHistory}
+          setSelectedAssetInfo={setSelectedAssetInfo}
+          setSelectedAssetId={setSelectedAssetId}
+          setDetailModalVisible={setDetailModalVisible}
           isRefreshingPortfolio={isRefreshingPortfolio}
           onRefreshPortfolio={onRefreshPortfolio}
           chartViewMode={chartViewMode}
@@ -818,6 +846,9 @@ export default function App() {
           customLists={customLists}
           openListOptions={openListOptions}
           lang={lang}
+          MOCK_ASSETS={MOCK_ASSETS}
+          MarketService={MarketService}
+          setWatchlist={setWatchlist}
         />
       </PagerView>
 
@@ -978,6 +1009,24 @@ export default function App() {
         deleteAsset={deleteAsset}
       />
 
+      <ListOptionsModal 
+        visible={listOptionsVisible}
+        onClose={() => setListOptionsVisible(false)}
+        styles={styles}
+        COLORS={COLORS}
+        selectedOptionList={selectedOptionList}
+        t={t}
+        setEditingListId={setEditingListId}
+        setListNameInput={setListNameInput}
+        setListError={setListError}
+        setListModalVisible={setListModalVisible}
+        deleteCustomList={(id) => {
+          const updated = customLists.filter(l => l.id !== id);
+          saveLists(updated);
+        }}
+        setListOptionsVisible={setListOptionsVisible}
+      />
+
       <SettingsModal 
         visible={settingsVisible}
         onClose={() => setSettingsVisible(false)}
@@ -1079,11 +1128,11 @@ const getStyles = (COLORS) => StyleSheet.create({
   compactPrice: { color: COLORS.textMain, fontSize: 16, fontWeight: '700' },
   compactPct: { fontSize: 13, fontWeight: '600', marginTop: 2 },
 
-  dragHandleContainer: { width: '100%', alignItems: 'center', paddingTop: 8, paddingBottom: 12 },
+  dragHandleContainer: { width: '100%', alignItems: 'center', paddingTop: 15, paddingBottom: 20 },
   dragHandle: { width: 40, height: 4, backgroundColor: COLORS.textSub, borderRadius: 2, opacity: 0.5 },
   modalOverlayFlexEnd: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: 'flex-end' },
   
-  donutContainer: { alignItems: 'center', justifyContent: 'center', position: 'relative', marginVertical: 20 },
+  donutContainer: { alignItems: 'center', justifyContent: 'center', position: 'relative', marginVertical: 5 },
   donutCenterTextContainer: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
   donutCenterLabel: { color: COLORS.textSub, fontSize: 12, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 2 },
   donutCenterValue: { color: COLORS.textMain, fontSize: 22, fontWeight: '900', letterSpacing: -0.5 },
@@ -1104,7 +1153,7 @@ const getStyles = (COLORS) => StyleSheet.create({
   perfItemPct: { fontSize: 14, fontWeight: '900' },
 
 
-  detailPageBox: { backgroundColor: COLORS.surfaceHigh, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 25, paddingBottom: 50, minHeight: '65%', zIndex: 2, borderTopWidth: 1, borderTopColor: COLORS.border },
+  detailPageBox: { backgroundColor: COLORS.surfaceHigh, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 25, paddingBottom: 50, minHeight: '98%', maxHeight: '98%', zIndex: 2, borderTopWidth: 1, borderTopColor: COLORS.border },
   detailHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 25 },
   detailIconBox: { width: 60, height: 60, borderRadius: 16, backgroundColor: COLORS.surfaceHigh, justifyContent: 'center', alignItems: 'center' },
   detailName: { color: COLORS.textMain, fontSize: 24, fontWeight: '900' },
@@ -1192,6 +1241,18 @@ const getStyles = (COLORS) => StyleSheet.create({
   listRowCount: { color: COLORS.textSub, fontSize: 12, fontWeight: 'bold' },
   listDetailHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, marginBottom: 20 },
   listDetailTitle: { color: COLORS.textMain, fontSize: 24, fontWeight: '900', marginLeft: 10 },
+
+  // List Options Modal Styles
+  optionsModalBox: { backgroundColor: COLORS.surface, padding: 25, paddingTop: 10, paddingBottom: 40, borderTopLeftRadius: 30, borderTopRightRadius: 30 },
+  optionsHeader: { marginBottom: 25, alignItems: 'center' },
+  optionsTitle: { color: COLORS.textMain, fontSize: 20, fontWeight: '900', marginBottom: 4 },
+  optionsSub: { color: COLORS.textSub, fontSize: 13, textTransform: 'uppercase', letterSpacing: 1 },
+  optionsList: { backgroundColor: COLORS.bg, borderRadius: 20, overflow: 'hidden', marginBottom: 25, borderWidth: 1, borderColor: COLORS.border },
+  optionItem: { flexDirection: 'row', alignItems: 'center', padding: 18, borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  optionIconBox: { width: 40, height: 40, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
+  optionText: { color: COLORS.textMain, fontSize: 16, fontWeight: '600', flex: 1 },
+  optionsCancelBtn: { backgroundColor: COLORS.surfaceHigh, paddingVertical: 16, borderRadius: 16, alignItems: 'center' },
+  optionsCancelText: { color: COLORS.textMain, fontSize: 15, fontWeight: 'bold' },
   
   // YENİ: Boş Durum Yönlendirici Buton Stili
   ghostBtn: { marginTop: 20, paddingVertical: 10, paddingHorizontal: 20, borderRadius: 20, backgroundColor: COLORS.surfaceHigh },

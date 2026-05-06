@@ -87,10 +87,8 @@ export const AddAssetModal = ({
                       </View>
                       <View><Text style={styles.resultSymbol}>{item.symbol}</Text><Text style={styles.resultName}>{item.name}</Text></View>
                     </View>
-                    {isAdded ? (
+                    {isAdded && (
                       <MaterialIcons name="check-circle" size={20} color={COLORS.primary} />
-                    ) : (
-                      <Text style={{color: COLORS.textSub, fontSize: 13, fontWeight: 'bold'}}>{item.price ? `${getCurrencySymbol(assetType, item.symbol)}${item.price}` : ''}</Text>
                     )}
                 </TouchableOpacity>
               );

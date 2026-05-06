@@ -125,7 +125,12 @@ export const getTopGainersAndLosers = (portfolio, usdToTryRate, timeFilter = 'AL
 
 // --- FAZ 4 EKLENTİLERİ ---
 
-const PIE_COLORS = ['#00FFA3', '#3A86FF', '#8338EC', '#FFBE0B', '#FF4D4D', '#8A919E'];
+const PIE_COLORS = [
+  '#00E87A', '#3A86FF', '#8338EC', '#FFBE0B', '#FF4757', '#FF006E', 
+  '#FB5607', '#3A0CA3', '#4CC9F0', '#F72585', '#7209B7', '#4895EF', 
+  '#B5179E', '#560BAD', '#2EC4B6', '#FF9F1C', '#E71D36', '#011627', 
+  '#FFD166', '#06D6A0', '#EF476F', '#118AB2', '#073B4C', '#8A8A9A'
+];
 
 // 6. Pasta Grafik Dağılım Hesabı
 export const getPieChartDistribution = (portfolio, usdToTryRate, totalNetCurrentValue, textOthers) => {
@@ -136,15 +141,7 @@ export const getPieChartDistribution = (portfolio, usdToTryRate, totalNetCurrent
     }).filter(a => a.value > 0);
 
     rawData.sort((a, b) => b.value - a.value);
-    let chartData = [];
-
-    if (rawData.length > 5) {
-        chartData = rawData.slice(0, 4);
-        const othersValue = rawData.slice(4).reduce((sum, item) => sum + item.value, 0);
-        chartData.push({ id: 'others', name: textOthers, symbol: textOthers, type: 'OTHER', value: othersValue });
-    } else {
-        chartData = rawData;
-    }
+    let chartData = rawData;
 
     return chartData.map((item, index) => ({
         ...item,
@@ -270,23 +267,6 @@ export const calculateAdvancedChartData = (chartHistory, timeFilter, totalNetCur
     if (!hasEnoughHistory) {
         // 1D için özel hesap: Henüz geçmiş veri birikmemiş olsa bile varlık bazlı değişimleri kullan
         if (timeFilter === '1D' && portfolio && portfolio.length > 0) {
-            const dailyAmount = portfolio.reduce((total, asset) => {
-                const pct = asset.changePercent || 0;
-                const changeDecimal = pct / 100;
-                const livePrice = asset.currentPrice !== undefined ? asset.currentPrice : asset.price;
-                const prevPrice = changeDecimal !== -1 
-                    ? livePrice / (1 + changeDecimal) 
-                    : livePrice;
-                const gain = (livePrice - prevPrice) * (asset.quantity || 0);
-                
-                // Kur çevrimi (Daha önce isUsdType fonksiyonunu tanımlamıştık, onu kullanalım)
-                const rate = isUsdType(asset.type) ? (usdToTryRate || 1) : 1;
-                return total + (gain * rate);
-            }, 0);
-            
-            const totalCost = totalNetCurrentValue - totalUnrealizedPnL;
-            const dailyPct = totalCost > 0 ? (dailyAmount / totalCost) * 100 : 0;
-            
             const assetFlowData = workingHistory.map(d => ({
                 date: d.timestamp || Date.now(),
                 value: (typeof d.value === 'number' && !isNaN(d.value)) ? Math.max(0, d.value) : 0,
@@ -294,11 +274,46 @@ export const calculateAdvancedChartData = (chartHistory, timeFilter, totalNetCur
             }));
             const performanceData = _calculateTWR(assetFlowData);
 
-            return {
+            const dailyAmount = portfolio.reduce((total, asset) => {
+                const currentPrice = asset.currentPrice || 0;
+                const previousClose = asset.previousClose;
+                
+                // previousClose yoksa bu varlığı atla
+                if (!previousClose || previousClose === 0) return total;
+                
+                const quantity = asset.quantity || 0;
+                const dailyGain = (currentPrice - previousClose) * quantity;
+                
+                // USD bazlı varlıklar için kur çevrimi
+                const rate = (asset.type === 'USA' || asset.type === 'CRYPTO') 
+                  ? (usdToTryRate || 1) 
+                  : 1;
+                
+                return total + (dailyGain * rate);
+              }, 0);
+
+              // Hesaba giren varlık var mı kontrol et
+              const assetsWithPrevClose = portfolio.filter(a => 
+                a.previousClose && a.previousClose !== 0
+              );
+
+              if (assetsWithPrevClose.length === 0) {
+                // Hiç previousClose yoksa ALL göster
+                return {
+                  assetFlowData,
+                  performanceData,
+                  pnl: { amount: totalUnrealizedPnL, pct: unrealizedPnLPct }
+                };
+              }
+
+              const totalCost = totalNetCurrentValue - totalUnrealizedPnL;
+              const dailyPct = totalCost > 0 ? (dailyAmount / totalCost) * 100 : 0;
+
+              return {
                 assetFlowData,
                 performanceData,
                 pnl: { amount: dailyAmount, pct: dailyPct }
-            };
+              };
         }
 
         // Yeterli geçmiş yok → ALL ile aynı değerleri kullan (Diğer timeframe'ler için)
@@ -348,24 +363,46 @@ export const calculateAdvancedChartData = (chartHistory, timeFilter, totalNetCur
     let pct = 0;
 
     if (timeFilter === '1D') {
-        // 1D için: Snapshot yerine her varlığın changePercent değerini kullanarak günlük kazancı hesapla
-        let dailyAmount = 0;
-        portfolio.forEach(asset => {
-            const changePct = asset.changePercent || 0;
-            const livePrice = asset.currentPrice !== undefined ? asset.currentPrice : asset.price;
-            const rate = isUsdType(asset.type) ? usdToTryRate : 1;
+        const dailyAmount = portfolio.reduce((total, asset) => {
+            const currentPrice = asset.currentPrice || 0;
+            const previousClose = asset.previousClose;
+            
+            // previousClose yoksa bu varlığı atla
+            if (!previousClose || previousClose === 0) return total;
+            
+            const quantity = asset.quantity || 0;
+            const dailyGain = (currentPrice - previousClose) * quantity;
+            
+            // USD bazlı varlıklar için kur çevrimi
+            const rate = (asset.type === 'USA' || asset.type === 'CRYPTO') 
+              ? (usdToTryRate || 1) 
+              : 1;
+            
+            return total + (dailyGain * rate);
+          }, 0);
 
-            // Önceki Fiyat = Güncel Fiyat / (1 + Değişim%)
-            const prevPrice = livePrice / (1 + (changePct / 100));
-            const dailyGainNative = (livePrice - prevPrice) * asset.quantity;
-            dailyAmount += dailyGainNative * rate;
-        });
+          // Hesaba giren varlık var mı kontrol et
+          const assetsWithPrevClose = portfolio.filter(a => 
+            a.previousClose && a.previousClose !== 0
+          );
 
-        const totalCost = totalNetCurrentValue - totalUnrealizedPnL;
-        amount = dailyAmount;
-        // Yüzdeyi toplam maliyete veya dünkü toplam değere göre hesaplayabiliriz. 
-        // İstediğiniz üzere: (dailyAmount / totalCost) * 100
-        pct = totalCost > 0 ? (dailyAmount / totalCost) * 100 : 0;
+          if (assetsWithPrevClose.length === 0) {
+            // Hiç previousClose yoksa ALL göster
+            return {
+              assetFlowData,
+              performanceData,
+              pnl: { amount: totalUnrealizedPnL, pct: unrealizedPnLPct }
+            };
+          }
+
+          const totalCost = totalNetCurrentValue - totalUnrealizedPnL;
+          const dailyPct = totalCost > 0 ? (dailyAmount / totalCost) * 100 : 0;
+
+          return {
+            assetFlowData,
+            performanceData,
+            pnl: { amount: dailyAmount, pct: dailyPct }
+          };
     } else {
         // Diğer zaman dilimleri için (1W, 1M vb.) mevcut TWR mantığı
         const historicalValue = assetFlowData[0]?.value || 0;

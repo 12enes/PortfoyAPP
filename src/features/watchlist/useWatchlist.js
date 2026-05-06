@@ -5,7 +5,7 @@ export const useWatchlist = (deps) => {
     listNameInput, customLists, editingListId, watchlist,
     saveLists, saveData, setListModalVisible, setListNameInput,
     setEditingListId, setListError, setSelectedListId, triggerShake, t,
-    setWatchlist, setIsMarketEditMode, selectedListId
+    setWatchlist, setIsMarketEditMode, selectedListId, setListOptionsVisible, setSelectedOptionList
   } = deps;
 
   const createOrUpdateList = () => {
@@ -33,14 +33,8 @@ export const useWatchlist = (deps) => {
   };
 
   const openListOptions = (list) => {
-    Alert.alert(list.name, '', [
-      { text: t('renameList'), onPress: () => { setEditingListId(list.id); setListNameInput(list.name); setListError(''); setListModalVisible(true); } },
-      { text: t('deleteList'), style: 'destructive', onPress: () => {
-          const updated = customLists.filter(l => l.id !== list.id);
-          saveLists(updated);
-      }},
-      { text: t('cancel'), style: 'cancel' }
-    ]);
+    setSelectedOptionList(list);
+    setListOptionsVisible(true);
   };
 
   const removeWatchlistAsset = (id) => {
