@@ -32,6 +32,47 @@ export const usePortfolioData = (deps) => {
     return derived;
   };
 
+  const fillMissingDays = async (history, portfolioData) => {
+    if (!history || history.length === 0) return history;
+    
+    const lastSnap = history[history.length - 1];
+    const lastDate = new Date(lastSnap.timestamp);
+    const today = new Date();
+    
+    // Gün farkını hesapla
+    lastDate.setHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0);
+    const dayDiff = Math.floor((today - lastDate) / (24 * 60 * 60 * 1000));
+    
+    // 1 günden az fark varsa doldurma
+    if (dayDiff <= 1) return history;
+    
+    // Maksimum 30 gün doldur
+    const daysToFill = Math.min(dayDiff - 1, 30);
+    const newHistory = [...history];
+    
+    for (let i = 1; i <= daysToFill; i++) {
+      const fillDate = new Date(lastDate);
+      fillDate.setDate(fillDate.getDate() + i);
+      
+      // Hafta sonu atla (0=Pazar, 6=Cumartesi)
+      if (fillDate.getDay() === 0 || fillDate.getDay() === 6) continue;
+      
+      // O günün timestamp'i (öğlen 12:00)
+      fillDate.setHours(12, 0, 0, 0);
+      
+      newHistory.push({
+        timestamp: fillDate.getTime(),
+        date: fillDate.toISOString().split('T')[0],
+        value: lastSnap.value,
+        cost: lastSnap.cost,
+        prices: lastSnap.prices
+      });
+    }
+    
+    return newHistory.sort((a, b) => a.timestamp - b.timestamp);
+  };
+
   const refreshPortfolioPrices = async (portfolioData, force = false) => {
     const data = portfolioData || portfolio;
     if (!data || data.length === 0) return;
@@ -216,8 +257,18 @@ export const usePortfolioData = (deps) => {
         setChartHistory([]);
         setPriceHistory({});
       } else {
-        const parsedChart = sChart ? JSON.parse(sChart) : null;
-        if (parsedChart) setChartHistory(parsedChart);
+        let parsedChart = sChart ? JSON.parse(sChart) : [];
+        const parsedPort = sPort ? JSON.parse(sPort) : [];
+        
+        // EKSİK GÜN DOLDURMA MEKANİZMASI
+        const filledHistory = await fillMissingDays(parsedChart, parsedPort);
+        parsedChart = filledHistory;
+        
+        setChartHistory(parsedChart);
+        if (sChart !== JSON.stringify(parsedChart)) {
+          AsyncStorage.setItem('@chart_history', JSON.stringify(parsedChart));
+        }
+
         if (sPriceHist) {
           setPriceHistory(JSON.parse(sPriceHist));
         } else if (parsedChart && parsedChart.length > 0) {
