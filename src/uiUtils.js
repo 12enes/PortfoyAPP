@@ -9,9 +9,9 @@ export const getAssetIcon = (type) => {
   } 
 };
 
-export const getConvertedValue = (nativePrice, type, currency, usdToTryRate, isUsdType) => {
+export const getConvertedValue = (nativePrice, assetOrType, currency, usdToTryRate, isUsdType) => {
   if (!nativePrice) return 0;
-  const isNativeUsd = isUsdType(type); 
+  const isNativeUsd = isUsdType(assetOrType); 
   
   if (currency === '₺') {
     return isNativeUsd ? nativePrice * usdToTryRate : nativePrice;

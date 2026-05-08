@@ -38,7 +38,7 @@ export const DetailModal = ({
               <View style={styles.statsGrid}>
                   <View style={styles.statBox}><Text style={styles.statBoxLabel}>{t('quantity')}</Text><Text style={styles.statBoxValue}>{currentDetailAsset.quantity ? currentDetailAsset.quantity.toFixed(decimals) : '-'}</Text></View>
                   <View style={styles.statBox}><Text style={styles.statBoxLabel}>{t('avgCost')}</Text>
-                    <Text style={styles.statBoxValue}>{currency}{getConvertedValueLocal(currentDetailAsset.price, currentDetailAsset.type).toFixed(2)}</Text>
+                    <Text style={styles.statBoxValue}>{currency}{getConvertedValueLocal(currentDetailAsset.price, currentDetailAsset).toFixed(2)}</Text>
                   </View>
                   {(() => {
                     const nativeCost = currentDetailAsset.price * currentDetailAsset.quantity; 
@@ -47,9 +47,9 @@ export const DetailModal = ({
                     const tax = (currentDetailAsset.type === 'TEFAS' && gross > 0) ? gross * 0.175 : 0; 
                     const net = gross - tax;
                     
-                    const displayVal = getConvertedValueLocal(nativeVal, currentDetailAsset.type);
-                    const displayNet = getConvertedValueLocal(net, currentDetailAsset.type);
-                    const displayTax = getConvertedValueLocal(tax, currentDetailAsset.type);
+                    const displayVal = getConvertedValueLocal(nativeVal, currentDetailAsset);
+                    const displayNet = getConvertedValueLocal(net, currentDetailAsset);
+                    const displayTax = getConvertedValueLocal(tax, currentDetailAsset);
 
                     return (
                       <>
@@ -66,7 +66,12 @@ export const DetailModal = ({
               <View style={styles.detailActionRow}>
                   <TouchableOpacity style={styles.detailBtnSecondary} onPress={() => {
                       onClose(); setIsAddMoreMode(true); setAssetType(currentDetailAsset.type);
-                      handleAssetSelect({ symbol: currentDetailAsset.name, name: currentDetailAsset.name, price: currentDetailAsset.currentPrice !== undefined ? currentDetailAsset.currentPrice : currentDetailAsset.price });
+                      handleAssetSelect({ 
+                        symbol: currentDetailAsset.symbol || currentDetailAsset.name, 
+                        name: currentDetailAsset.name, 
+                        type: currentDetailAsset.type,
+                        price: currentDetailAsset.currentPrice !== undefined ? currentDetailAsset.currentPrice : currentDetailAsset.price 
+                      });
                       setModalVisible(true);
                   }}>
                     <MaterialIcons name="add-circle-outline" size={18} color={COLORS.textMain} style={{marginRight: 5}} />

@@ -49,9 +49,6 @@ const TefasScraper = ({ fonKodu, onDataReceived }) => {
         }
       } else {
         console.error('TEFAS Scraper Hatası (Fon: ' + fonKodu + '):', result.error);
-        if (result.htmlPreview) {
-          console.log('HTML PREVIEW:', result.htmlPreview);
-        }
       }
     } catch (error) {
       console.error('TEFAS Scraper Parse Hatası:', error);

@@ -18,7 +18,8 @@ export const useSearch = (deps) => {
       } else {
         const enriched = (MOCK_ASSETS[assetType] || []).map(a => ({
           ...a,
-          price: livePriceMap[a.symbol] || 0
+          type: assetType,
+          price: livePriceMap[a.symbol] || a.price || 0
         }));
         setSearchResults(enriched);
       }
@@ -34,8 +35,8 @@ export const useSearch = (deps) => {
       a.symbol.toLowerCase().includes(text.toLowerCase())
     ).map(a => ({
       ...a,
-      // Sadece canlı haritada varsa fiyatı göster, yoksa 0 yap (ekranda gizlensin)
-      price: livePriceMap[a.symbol] || 0
+      type: assetType,
+      price: livePriceMap[a.symbol] || a.price || 0
     }));
     setSearchResults(mockFiltered);
   };
@@ -119,7 +120,7 @@ export const useSearch = (deps) => {
         price: livePriceMap[a.symbol] || a.price
       })));
     } catch (e) {
-      console.log('Arama hatası:', e.message);
+      // Sessiz hata
     }
   };
 
@@ -129,30 +130,34 @@ export const useSearch = (deps) => {
     // Kategori değişince mock verileri sadece canlı fiyatlarla göster
     const enriched = (MOCK_ASSETS[cat] || []).map(a => ({
       ...a,
-      price: livePriceMap[a.symbol] || 0
+      type: cat,
+      price: livePriceMap[a.symbol] || a.price || 0
     }));
     setSearchResults(enriched);
   };
 
   const handleAssetSelect = async (asset) => {
-    setSelectedSearchAsset(asset);
+    const assetWithType = { ...asset, type: asset.type || assetType };
+    setSelectedSearchAsset(assetWithType);
     
-    // Önce bildiğimiz en iyi fiyatı koy
-    const bestPrice = livePriceMap[asset.symbol] || asset.price || 0;
+    // 1. Önce bildiğimiz en iyi fiyatı koy (canlı haritadan veya varlığın kendi fiyatından)
+    const bestPrice = livePriceMap[assetWithType.symbol] || assetWithType.currentPrice || assetWithType.price || 0;
     setBuyPrice(bestPrice > 0 ? bestPrice.toString() : '');
     
     setPrimaryInput('');
     setNote('');
     setInputMode('AMOUNT');
 
-    // ARKA PLANDA: En güncel fiyatı çek ve güncelle (eğer mümkünse)
+    // 2. ARKA PLANDA: En güncel fiyatı çek ve güncelle
     try {
-      const freshAsset = await MarketService.fetchAsset(asset);
-      if (freshAsset && freshAsset.currentPrice) {
-        setBuyPrice(freshAsset.currentPrice.toString());
+      // MarketService.fetchAsset'e varlığın tipini de eklediğimizden emin olalım
+      const freshAsset = await MarketService.fetchAsset(assetWithType);
+      if (freshAsset && (freshAsset.currentPrice || freshAsset.price)) {
+        const finalPrice = freshAsset.currentPrice || freshAsset.price;
+        setBuyPrice(finalPrice.toString());
       }
     } catch (e) {
-      console.log("Live price fetch failed:", e.message);
+      // Sessiz hata
     }
   };
 

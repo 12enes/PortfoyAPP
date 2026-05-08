@@ -37,7 +37,7 @@ export const useSettings = (deps) => {
             try {
               await AsyncStorage.multiRemove([
                 '@portfolio', '@watchlist', '@history', '@chart_history', 
-                '@custom_lists', '@language', '@currency', '@theme'
+                '@price_history', '@cash_balance', '@custom_lists', '@language', '@currency', '@theme'
               ]);
               
               setPortfolio([]);

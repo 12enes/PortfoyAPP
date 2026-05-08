@@ -4,26 +4,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import PerformanceChartSection from '../../../PerformanceChartSection';
 import AssetIcon from '../../components/AssetIcon';
-import { calculatePeriodPnL } from '../../../portfolioEngine';
-
-const getCurrencySymbol = (type, symbolOrName) => {
-  if (symbolOrName) {
-    const s = symbolOrName.toUpperCase();
-    const tlAssets = ['GRAM/TL', 'DOLAR/TL', 'EURO/TL', 'GRAM ALTIN', 'ALTIN'];
-    if (tlAssets.some(a => s.includes(a)) || s.includes('/TL')) return '₺';
-    if (s.includes('XAU') || s.includes('BRENT') || s.includes('XAG') || s.includes('SILVER') || s.includes('PLATINUM') || s.includes('ONS')) return '$';
-  }
-  switch(type) { 
-    case 'BIST': case 'TEFAS': return '₺'; 
-    case 'CRYPTO': return '$'; 
-    case 'USA': return '$'; 
-    case 'GOLD': 
-      if (symbolOrName && symbolOrName.includes('USD')) return '$';
-      return '₺';
-    case 'FOREX': return '₺';
-    default: return '₺'; 
-  }
-};
+import { calculateAssetPnLForTimeframe, getAssetCurrencySymbol, getAssetRateToTry } from '../../../portfolioEngine';
 
 export const PortfolioScreen = ({
   styles, COLORS, portfolio, getGroupedData, t,
@@ -43,42 +24,15 @@ export const PortfolioScreen = ({
     const cPrice = item.currentPrice !== undefined ? item.currentPrice : item.price;
     const avgPrice = item.price;
     const quantity = item.quantity;
-    const nativeCur = getCurrencySymbol(item.type, item.symbol || item.name);
-    const isNativeUsd = nativeCur === '$';
-    const rateTL = isNativeUsd ? usdToTryRate : 1;
+    const nativeCur = getAssetCurrencySymbol(item);
+    const rateTL = getAssetRateToTry(item, usdToTryRate);
     const totalValueTL = cPrice * quantity * rateTL;
     
-    let profitTL = 0;
-    let profitPercentage = 0;
-
-    if (timeFilter === '1D') {
-      const prevClose = item.previousClose;
-      
-      if (prevClose && prevClose !== 0) {
-        const cPrice = item.currentPrice || 0;
-        const qty = item.quantity || 0;
-        const rate = (item.type === 'USA' || item.type === 'CRYPTO')
-          ? (usdToTryRate || 1) : 1;
-        
-        profitTL = (cPrice - prevClose) * qty * rate;
-        profitPercentage = ((cPrice - prevClose) / prevClose) * 100;
-      } else {
-        // previousClose yoksa changePercent kullan
-        profitPercentage = item.changePercent || 0;
-        profitTL = (profitPercentage / 100) * 
-          (item.currentPrice || 0) * 
-          (item.quantity || 0) * (isNativeUsd ? usdToTryRate : 1);
-      }
-    } else if (timeFilter === 'ALL') {
-      profitPercentage = avgPrice > 0 ? ((cPrice - avgPrice) / avgPrice) * 100 : 0;
-      profitTL = (cPrice - avgPrice) * quantity * rateTL;
-    } else {
-      const pnl = calculatePeriodPnL(item, cPrice, priceHistory?.[item.name], timeFilter, usdToTryRate);
-      profitTL = pnl.amount;
-      profitPercentage = pnl.percentage;
-    }
+    const pnl = calculateAssetPnLForTimeframe(item, timeFilter, usdToTryRate, priceHistory?.[item.name]);
+    const profitTL = pnl.amount;
+    const profitPercentage = pnl.percentage;
     
-    const isProfit = profitTL >= 0;
+    const isProfit = profitPercentage >= 0;
     const pnlColor = isProfit ? '#00E87A' : '#FF4757';
 
     return (
@@ -244,13 +198,14 @@ export const PortfolioScreen = ({
                 {stableChartData && stableChartData.length >= 2 ? (
                   <PerformanceChartSection
                     data={stableChartData}
-                    liveValue={currency === '$' ? totalNetCurrentValue / usdToTryRate : totalNetCurrentValue}
+                    liveValue={totalNetCurrentValue}
                     liveChange={timeframePerformance.pct}
                     liveChangeAmount={timeframePerformance.amount}
                     language={lang}
                     currency={currency}
                     locale={lang === 'tr' ? 'tr-TR' : 'en-US'}
                     viewMode={chartViewMode}
+                    valueScale={currency === '$' && usdToTryRate ? 1 / usdToTryRate : 1}
                   />
                 ) : (
                   <View style={{ 

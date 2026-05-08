@@ -5,13 +5,31 @@ export const usePortfolioData = (deps) => {
   const {
     portfolio, setPortfolio, watchlist, setWatchlist, history, setHistory, 
     chartHistory, setChartHistory, priceHistory, setPriceHistory,
-    setLang, setCurrency, setTheme, customLists, setCustomLists, setUsdToTryRate,
+    setLang, setCurrency, setTheme, customLists, setCustomLists, setCashBalance, setUsdToTryRate,
     setIsRefreshing, flashAnim, lang, timeFilter,
     t, MarketService, migrateType
   } = deps;
 
   const saveData = async (key, data) => { 
     await AsyncStorage.setItem(key, JSON.stringify(data)); 
+  };
+
+  const buildPriceHistoryFromChart = (historyData) => {
+    const derived = {};
+    (historyData || []).forEach(point => {
+      const timestamp = point.timestamp;
+      if (!timestamp || !point.prices) return;
+
+      Object.entries(point.prices).forEach(([symbol, price]) => {
+        const numericPrice = Number(price);
+        if (!Number.isFinite(numericPrice) || numericPrice <= 0) return;
+        derived[symbol] = {
+          ...(derived[symbol] || {}),
+          [timestamp]: numericPrice
+        };
+      });
+    });
+    return derived;
   };
 
   const refreshPortfolioPrices = async (portfolioData, force = false) => {
@@ -30,7 +48,12 @@ export const usePortfolioData = (deps) => {
       const merged = data.map(a => {
         const fresh = updated.find(u => u.id === a.id);
         if (fresh && fresh.currentPrice !== undefined) {
-          return { ...a, currentPrice: fresh.currentPrice, changePercent: fresh.changePercent || 0 };
+          return {
+            ...a,
+            currentPrice: fresh.currentPrice,
+            changePercent: fresh.changePercent || 0,
+            previousClose: fresh.previousClose ?? a.previousClose
+          };
         }
         return a;
       });
@@ -38,61 +61,111 @@ export const usePortfolioData = (deps) => {
       saveData('@portfolio', merged);
       await AsyncStorage.setItem('@last_fetch_time', Date.now().toString());
     } catch (e) { 
-      console.log("Refresh error:", e); 
+      // Hata yönetimi
     }
   };
 
-  const saveDailySnapshot = async (currentTotal, currentCost) => {
-    const todayStr = new Date().toISOString().split('T')[0];
+  const saveDailySnapshot = async (currentTotal, currentCost, portfolioSnapshot = portfolio) => {
     let currentHistory = [...chartHistory];
+    const storedHistory = await AsyncStorage.getItem('@chart_history');
+    if (storedHistory) {
+      currentHistory = JSON.parse(storedHistory);
+    }
 
+    const lastSaved = currentHistory[currentHistory.length - 1];
+    const now = Date.now();
+    // 1 dakika geçmemişse kaydetme
+    if (lastSaved && now - lastSaved.timestamp < 60000) return;
+
+    const todayStr = new Date().toISOString().split('T')[0];
     const currentAssetPrices = {};
-    portfolio.forEach(a => {
+    portfolioSnapshot.forEach(a => {
         currentAssetPrices[a.name] = a.currentPrice !== undefined ? a.currentPrice : a.price;
     });
 
-    if (currentHistory.length === 0) {
-      const stored = await AsyncStorage.getItem('@chart_history');
-      if (stored) {
-        currentHistory = JSON.parse(stored);
-      }
-      // Mock veri üretimi kaldırıldı — yeni kullanıcı boş chartHistory ile başlar
-      // İlk gerçek kayıt aşağıdaki todayData bloğu tarafından eklenir
-    }
-
-    const todayIndex = currentHistory.findIndex(d => d.date === todayStr);
-    const todayData = { 
+    const newData = { 
       date: todayStr, 
-      timestamp: Date.now(), 
+      timestamp: now, 
       value: Math.max(0, currentTotal), 
       cost: Math.max(0, currentCost),
       prices: currentAssetPrices
     };
 
-    if (todayIndex >= 0) {
-      currentHistory[todayIndex] = todayData; 
-    } else {
-      currentHistory.push(todayData); 
-    }
+    currentHistory.push(newData); 
 
-    setChartHistory(currentHistory);
-    AsyncStorage.setItem('@chart_history', JSON.stringify(currentHistory));
+    // --- AKILLI VERİ YÖNETİMİ (CLEANUP) ---
+    const oneDayAgo = now - 24 * 60 * 60 * 1000;
+    const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
+
+    const hourlyMap = new Map();
+    const dailyMap = new Map();
+    const recentData = [];
+
+    currentHistory.forEach(snap => {
+      const ts = snap.timestamp;
+      if (ts >= oneDayAgo) {
+        // Son 24 saat: Tüm kayıtları koru
+        recentData.push(snap);
+      } else if (ts >= oneWeekAgo) {
+        // 1 gün - 1 hafta arası: Saatte bir tut (İlk kaydı koru)
+        const hourKey = new Date(ts).toISOString().slice(0, 13); // "YYYY-MM-DDTHH"
+        if (!hourlyMap.has(hourKey)) hourlyMap.set(hourKey, snap);
+      } else {
+        // 1 haftadan eski: Günde bir tut (Son kaydı koru)
+        const dayKey = new Date(ts).toISOString().split('T')[0]; // "YYYY-MM-DD"
+        dailyMap.set(dayKey, snap);
+      }
+    });
+
+    const finalHistory = [
+      ...Array.from(dailyMap.values()),
+      ...Array.from(hourlyMap.values()),
+      ...recentData
+    ].sort((a, b) => a.timestamp - b.timestamp);
+
+    setChartHistory(finalHistory);
+    AsyncStorage.setItem('@chart_history', JSON.stringify(finalHistory));
+
+    let updatedPriceHistory = { ...priceHistory };
+    const storedPriceHistory = await AsyncStorage.getItem('@price_history');
+    if (storedPriceHistory) {
+      updatedPriceHistory = JSON.parse(storedPriceHistory);
+    }
+    Object.entries(currentAssetPrices).forEach(([symbol, price]) => {
+      const numericPrice = Number(price);
+      if (!Number.isFinite(numericPrice) || numericPrice <= 0) return;
+      updatedPriceHistory[symbol] = {
+        ...(updatedPriceHistory[symbol] || {}),
+        [now]: numericPrice
+      };
+    });
+
+    setPriceHistory(updatedPriceHistory);
+    AsyncStorage.setItem('@price_history', JSON.stringify(updatedPriceHistory));
   };
 
   const onRefreshMarket = async () => {
     setIsRefreshing(true);
-    try {
-      const updated = await MarketService.fetchMultiple(watchlist);
-      setWatchlist(updated);
-      saveData('@watchlist', updated);
-      await AsyncStorage.setItem('@last_fetch_time', Date.now().toString());
-      // Flash animasyonu tetikle
-      flashAnim.setValue(1);
-      Animated.timing(flashAnim, { toValue: 0, duration: 800, useNativeDriver: false }).start();
-    } catch (e) { 
-      Alert.alert(t('alertWarning'), "Refresh failed"); 
-    }
-    setIsRefreshing(false);
+    setWatchlist(currentWatchlist => {
+      if (!currentWatchlist || currentWatchlist.length === 0) {
+        setIsRefreshing(false);
+        return currentWatchlist;
+      }
+      
+      MarketService.fetchMultiple(currentWatchlist).then(updated => {
+        setWatchlist(updated);
+        saveData('@watchlist', updated);
+        AsyncStorage.setItem('@last_fetch_time', Date.now().toString());
+        
+        flashAnim.setValue(1);
+        Animated.timing(flashAnim, { toValue: 0, duration: 800, useNativeDriver: false }).start();
+        setIsRefreshing(false);
+      }).catch(e => {
+        setIsRefreshing(false);
+      });
+      
+      return currentWatchlist;
+    });
   };
 
   const getTimeframeLabel = () => {
@@ -126,6 +199,7 @@ export const usePortfolioData = (deps) => {
       const sHist = await AsyncStorage.getItem('@history');
       const sChart = await AsyncStorage.getItem('@chart_history');
       const sPriceHist = await AsyncStorage.getItem('@price_history');
+      const sCash = await AsyncStorage.getItem('@cash_balance');
       const sLang = await AsyncStorage.getItem('@language'); 
       const sCurr = await AsyncStorage.getItem('@currency');
       const sTheme = await AsyncStorage.getItem('@theme'); 
@@ -142,13 +216,21 @@ export const usePortfolioData = (deps) => {
         setChartHistory([]);
         setPriceHistory({});
       } else {
-        if (sChart) setChartHistory(JSON.parse(sChart));
-        if (sPriceHist) setPriceHistory(JSON.parse(sPriceHist));
+        const parsedChart = sChart ? JSON.parse(sChart) : null;
+        if (parsedChart) setChartHistory(parsedChart);
+        if (sPriceHist) {
+          setPriceHistory(JSON.parse(sPriceHist));
+        } else if (parsedChart && parsedChart.length > 0) {
+          const derivedPriceHistory = buildPriceHistoryFromChart(parsedChart);
+          setPriceHistory(derivedPriceHistory);
+          AsyncStorage.setItem('@price_history', JSON.stringify(derivedPriceHistory));
+        }
       }
       
       if (sPort) setPortfolio(JSON.parse(sPort).map(item => ({...item, type: migrateType(item.type)})));
       if (sWatch) setWatchlist(JSON.parse(sWatch).map(item => ({ ...item, type: migrateType(item.type), changePercent: item.changePercent || 0 })));
       if (sHist) setHistory(JSON.parse(sHist));
+      if (sCash) setCashBalance(Number(JSON.parse(sCash)) || 0);
       if (sLang) setLang(sLang);
       if (sCurr) setCurrency(sCurr);
       if (sTheme) setTheme(sTheme);

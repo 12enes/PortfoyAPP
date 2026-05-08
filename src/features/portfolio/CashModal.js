@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TextInput, TouchableOpacity } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SwipeableModal } from '../../shared/components/SwipeableModal';
 
 export const CashModal = ({
@@ -90,7 +91,11 @@ export const CashModal = ({
             const val = parseFloat(cashInput.replace(',', '.'));
             if (!isNaN(val) && val > 0) {
               const amountInTry = currency === '$' ? val * usdToTryRate : val;
-              setCashBalance(prev => prev + amountInTry);
+              setCashBalance(prev => {
+                const next = prev + amountInTry;
+                AsyncStorage.setItem('@cash_balance', JSON.stringify(next));
+                return next;
+              });
               setCashInput('');
               onClose();
             }
@@ -113,7 +118,11 @@ export const CashModal = ({
             const val = parseFloat(cashInput.replace(',', '.'));
             if (!isNaN(val) && val > 0) {
               const amountInTry = currency === '$' ? val * usdToTryRate : val;
-              setCashBalance(prev => Math.max(0, prev - amountInTry));
+              setCashBalance(prev => {
+                const next = Math.max(0, prev - amountInTry);
+                AsyncStorage.setItem('@cash_balance', JSON.stringify(next));
+                return next;
+              });
               setCashInput('');
               onClose();
             }

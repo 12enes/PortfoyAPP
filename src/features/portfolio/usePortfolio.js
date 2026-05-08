@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Alert } from 'react-native';
+import { getAssetRateToTry } from '../../../portfolioEngine';
 
 export const usePortfolio = (deps) => {
   const {
@@ -92,18 +93,18 @@ export const usePortfolio = (deps) => {
       // Her durumda ana Watchlist'e ekle (Eğer yoksa) - Bu fiyat zenginleştirmesi için gereklidir
       const existingIndex = watchlist.findIndex(a => a.name === finalSymbol);
       if (existingIndex === -1) {
-        const up = [{ id: Math.random().toString(), name: finalSymbol, type: assetType, price: finalPrice, currentPrice: liveMarketPrice, changePercent: 0 }, ...watchlist];
+        const up = [...watchlist, { id: Math.random().toString(), name: finalSymbol, type: assetType, price: finalPrice, currentPrice: liveMarketPrice, changePercent: 0 }];
         setWatchlist(up);
         saveData('@watchlist', up);
         // Varlık eklenince hemen fiyatı güncelle
-        setTimeout(() => onRefreshMarket(), 100);
+        setTimeout(() => onRefreshMarket(), 500);
       }
 
       // Eğer bir özel liste seçiliyse oraya da ekle
       if (selectedListId) {
         const updated = customLists.map(l => 
           l.id === selectedListId 
-            ? { ...l, assetIds: l.assetIds.includes(finalSymbol) ? l.assetIds : [finalSymbol, ...l.assetIds] } 
+            ? { ...l, assetIds: l.assetIds.includes(finalSymbol) ? l.assetIds : [...l.assetIds, finalSymbol] } 
             : l
         );
         saveLists(updated);
@@ -142,8 +143,7 @@ export const usePortfolio = (deps) => {
     if (asset.type === 'TEFAS' && grossProfitNative > 0) taxNative = grossProfitNative * 0.175; 
     const netProfitNative = grossProfitNative - taxNative;
 
-    const isUsd = (asset.type === 'CRYPTO' || asset.type === 'USA' || asset.type === 'GOLD');
-    const rate = isUsd ? usdToTryRate : 1;
+    const rate = getAssetRateToTry(asset, usdToTryRate);
     
     const totalSaleValueNative = (cPrice * sellQty) - taxNative;
     const totalSaleValueTRY = totalSaleValueNative * rate;
@@ -151,7 +151,11 @@ export const usePortfolio = (deps) => {
     const remQty = asset.quantity - sellQty;
     const upPort = remQty <= 0 ? portfolio.filter(a => a.id !== selectedAssetId) : portfolio.map(a => a.id === selectedAssetId ? { ...a, quantity: remQty } : a);
     
-    setCashBalance(prev => prev + totalSaleValueTRY);
+    setCashBalance(prev => {
+      const next = prev + totalSaleValueTRY;
+      saveData('@cash_balance', next);
+      return next;
+    });
     setPortfolio(upPort); 
     saveData('@portfolio', upPort);
     logTransaction(t('sell'), asset.name || asset.symbol, sellQty, cPrice, netProfitNative, asset.type);

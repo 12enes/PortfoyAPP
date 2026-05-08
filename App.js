@@ -9,7 +9,7 @@ import PagerView from 'react-native-pager-view';
 import { LineChart } from 'react-native-gifted-charts';
 import PerformanceChartSection from './PerformanceChartSection';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { calculateAssetPnL, calculateTotalPortfolio, getTopGainersAndLosers, isUsdType, getPieChartDistribution, getPortfolioPerformanceByTimeframe, calculateAdvancedChartData, calculatePeriodPnL } from './portfolioEngine';
+import { calculateAssetPnL, calculateTotalPortfolio, getTopGainersAndLosers, isUsdType, getPieChartDistribution, getPortfolioPerformanceByTimeframe, calculateAdvancedChartData, calculateAssetPnLForTimeframe } from './portfolioEngine';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 import { DARK_THEME, LIGHT_THEME, PIE_COLORS } from './src/shared/constants/themes';
@@ -100,7 +100,8 @@ const MarketService = {
         const prices = data.resultList.map(item => item.fiyat);
         const latestPrice = prices[prices.length - 1];
         let changePct = 0;
-        let previousClose = latestPrice;
+        let previousClose = null; // Varsayılan null, merge sırasında korunması için
+        
         if (prices.length > 1) {
            previousClose = prices[prices.length - 2];
            if (previousClose > 0) changePct = ((latestPrice - previousClose) / previousClose) * 100;
@@ -109,7 +110,6 @@ const MarketService = {
       }
       return null;
     } catch (e) {
-      console.log(`TEFAS fetch error for ${symbol}:`, e.message);
       return null;
     }
   },
@@ -128,7 +128,6 @@ const MarketService = {
       const changePct = previousClose ? ((price - previousClose) / previousClose) * 100 : 0;
       return { price, changePct, previousClose };
     } catch (e) {
-      console.log(`Yahoo fetch error for ${symbol}:`, e.message);
       return null;
     }
   },
@@ -161,15 +160,34 @@ const MarketService = {
     } catch (e) { return null; }
   },
 
-  // ExchangeRate API: Döviz kurları (USD → TRY, EUR → TRY vb.)
+  // Frankfurter API: Döviz kurları (Anlık ve Dünkü Kapanış)
   _fetchForexRates: async () => {
     try {
-      const res = await fetch('https://open.er-api.com/v6/latest/USD');
-      if (!res.ok) throw new Error(`Forex HTTP ${res.status}`);
-      const data = await res.json();
-      if (data.result !== 'success') throw new Error('Forex API failed');
-      return data.rates; 
-    } catch (e) { return null; }
+      const currencies = 'TRY,EUR,GBP,JPY,CHF,AUD';
+      
+      // Bugünkü kurlar
+      const todayRes = await fetch(`https://api.frankfurter.app/latest?from=USD&to=${currencies}`);
+      if (!todayRes.ok) throw new Error('Frankfurter Today failed');
+      const todayData = await todayRes.json();
+      
+      // Dünkü kurlar (previousClose için)
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      // Hafta sonu kontrolü: 0=Pazar, 6=Cumartesi
+      if (yesterday.getDay() === 0) yesterday.setDate(yesterday.getDate() - 2);
+      if (yesterday.getDay() === 6) yesterday.setDate(yesterday.getDate() - 1);
+      const yDate = yesterday.toISOString().split('T')[0];
+      
+      const yRes = await fetch(`https://api.frankfurter.app/${yDate}?from=USD&to=${currencies}`);
+      const yData = yRes.ok ? await yRes.json() : todayData;
+      
+      return {
+        rates: todayData.rates,
+        previousRates: yData.rates || todayData.rates
+      };
+    } catch (e) {
+      return null;
+    }
   },
 
   fetchAsset: async (asset) => { 
@@ -187,8 +205,9 @@ const MarketService = {
 
   fetchMultiple: async (assets) => {
     const needsCrypto = assets.some(a => a.type === 'CRYPTO');
-    const needsGold = assets.some(a => a.type === 'GOLD');
-    const needsYahoo = assets.some(a => a.type === 'BIST' || a.type === 'USA' || a.symbol === 'BRENT' || a.name === 'BRENT');
+    const needsGold = assets.some(a => a.type === 'GOLD' || ['XAU/USD', 'GRAM/TL'].includes(a.symbol || a.name));
+    const needsForex = assets.some(a => a.type === 'GOLD' || ['DOLAR/TL', 'EURO/TL', 'GBP', 'STERLIN', 'YEN', 'FRANK', 'AUD', 'GRAM/TL'].some(s => (a.symbol || a.name || '').includes(s)));
+    const needsYahoo = assets.some(a => a.type === 'BIST' || a.type === 'USA' || ['BRENT', 'BZ', 'SILVER', 'XAG/USD', 'GUMUS', 'GLD/AG', 'PLATINUM', 'PLATIN', 'PL', 'NATURALGAZ', 'PALADYUM', 'PALADIUM', 'PALLADIUM', 'PA'].some(s => (a.symbol || a.name || '').includes(s)));
     const needsTefas = assets.some(a => a.type === 'TEFAS');
     
     // 1. Kripto İstekleri
@@ -199,12 +218,20 @@ const MarketService = {
 
     // 2. Yahoo Finance İstekleri (BIST ve ABD)
     const yahooSymbolsMap = {}; // Ekranda görünen ad ile Yahoo sorgu adını eşleştir
-    assets.filter(a => a.type === 'BIST' || a.type === 'USA' || a.symbol === 'BRENT' || a.name === 'BRENT').forEach(a => {
+    assets.filter(a => a.type === 'BIST' || a.type === 'USA' || ['BRENT', 'BZ', 'SILVER', 'XAG/USD', 'GUMUS', 'GLD/AG', 'PLATINUM', 'PLATIN', 'PL', 'NATURALGAZ', 'PALADYUM', 'PALADIUM', 'PALLADIUM', 'PA'].some(s => (a.symbol || a.name || '').includes(s))).forEach(a => {
       let fetchSymbol = a.symbol || a.name;
       if (a.type === 'BIST' && fetchSymbol && !fetchSymbol.endsWith('.IS')) {
         fetchSymbol = `${fetchSymbol}.IS`;
-      } else if (fetchSymbol === 'BRENT') {
+      } else if (['BRENT', 'BZ'].some(s => fetchSymbol.includes(s))) {
         fetchSymbol = 'BZ=F';
+      } else if (['SILVER', 'XAG/USD', 'GUMUS', 'GLD/AG'].some(s => fetchSymbol.includes(s))) {
+        fetchSymbol = 'SI=F';
+      } else if (['PLATINUM', 'PLATIN', 'PL'].some(s => fetchSymbol.includes(s))) {
+        fetchSymbol = 'PL=F';
+      } else if (fetchSymbol === 'NATURALGAZ') {
+        fetchSymbol = 'NG=F';
+      } else if (['PALADYUM', 'PALADIUM', 'PALLADIUM', 'PA'].some(s => fetchSymbol.includes(s))) {
+        fetchSymbol = 'PA=F';
       }
       yahooSymbolsMap[a.symbol || a.name] = fetchSymbol;
     });
@@ -222,9 +249,9 @@ const MarketService = {
 
     // 4. Altın ve Döviz
     const goldPromise = needsGold ? MarketService._fetchGoldUSD() : Promise.resolve(null);
-    const forexPromise = needsGold ? MarketService._fetchForexRates() : Promise.resolve(null);
+    const forexPromise = needsForex ? MarketService._fetchForexRates() : Promise.resolve(null);
 
-    const [cryptoResults, yahooResults, tefasResults, goldData, forexRates] = await Promise.all([
+    const [cryptoResults, yahooResults, tefasResults, goldData, forexData] = await Promise.all([
       Promise.all(cryptoPromises),
       Promise.all(yahooPromises),
       Promise.all(tefasPromises),
@@ -237,8 +264,10 @@ const MarketService = {
     yahooResults.forEach(([sym, result]) => { if (result) dataMap[sym] = result; });
     tefasResults.forEach(([sym, result]) => { if (result) dataMap[sym] = result; });
 
-    const usdTry = forexRates?.TRY || null;
-    const eurUsd = forexRates?.EUR || null; 
+    const todayRates = forexData?.rates || null;
+    const prevRates = forexData?.previousRates || null;
+    const usdTry = todayRates?.TRY || null;
+    const eurUsd = todayRates?.EUR || null; 
     const xauUsd = goldData?.price || null;
 
     const updated = assets.map(a => {
@@ -249,43 +278,84 @@ const MarketService = {
         const querySymbol = yahooSymbolsMap[sym];
         if (dataMap[querySymbol]) {
           const { price, changePct, previousClose } = dataMap[querySymbol];
-          return { ...a, currentPrice: price, changePercent: changePct, previousClose };
+          return { ...a, currentPrice: price, changePercent: changePct, previousClose: previousClose || a.previousClose };
         }
       }
 
       // Kripto Eşleştirmesi
       if (a.type === 'CRYPTO' && dataMap[sym]) {
         const { price, changePct, previousClose } = dataMap[sym];
-        return { ...a, currentPrice: price, changePercent: changePct, previousClose };
+        return { ...a, currentPrice: price, changePercent: changePct, previousClose: previousClose || a.previousClose };
       }
 
       // TEFAS Eşleştirmesi
       if (a.type === 'TEFAS' && dataMap[sym]) {
         const { price, changePct, previousClose } = dataMap[sym];
-        return { ...a, currentPrice: price, changePercent: changePct, previousClose };
+        return { ...a, currentPrice: price, changePercent: changePct, previousClose: previousClose || a.previousClose };
       }
 
       // Altın/Döviz Eşleştirmesi
-      if (a.type === 'GOLD') {
-        if (sym === 'DOLAR/TL' && usdTry) {
-          const oldPrice = a.currentPrice || a.price;
-          const pct = oldPrice > 0 ? ((usdTry - oldPrice) / oldPrice) * 100 : 0;
-          return { ...a, currentPrice: usdTry, changePercent: pct, previousClose: oldPrice };
+      if (a.type === 'GOLD' || ['DOLAR', 'EURO', 'GBP', 'STERLIN', 'YEN', 'FRANK', 'AUD', 'XAU', 'GRAM/TL'].some(s => sym.includes(s))) {
+        if (['DOLAR/TL', 'USD/TRY', 'USD/TL', 'DOLAR'].some(s => sym.includes(s)) && usdTry) {
+          const currentPrice = usdTry;
+          const previousClose = (prevRates && prevRates.TRY) ? prevRates.TRY : (a.previousClose || currentPrice);
+          const pct = ((currentPrice - previousClose) / previousClose) * 100;
+          return { ...a, currentPrice, changePercent: pct, previousClose };
         }
-        if (sym === 'EURO/TL' && usdTry && eurUsd) {
-          const eurTry = usdTry / eurUsd; 
-          const oldPrice = a.currentPrice || a.price;
-          const pct = oldPrice > 0 ? ((eurTry - oldPrice) / oldPrice) * 100 : 0;
-          return { ...a, currentPrice: parseFloat(eurTry.toFixed(4)), changePercent: pct, previousClose: oldPrice };
+        if (['EURO/TL', 'EUR/TRY', 'EUR/TL', 'EURO'].some(s => sym.includes(s)) && usdTry && eurUsd) {
+          const currentPrice = usdTry / eurUsd;
+          const prevEurUsd = (prevRates && prevRates.EUR) ? prevRates.EUR : eurUsd;
+          const prevTry = (prevRates && prevRates.TRY) ? prevRates.TRY : null;
+          const previousClose = prevTry ? (prevTry / prevEurUsd) : (a.previousClose || currentPrice);
+          const pct = ((currentPrice - previousClose) / previousClose) * 100;
+          return { ...a, currentPrice: parseFloat(currentPrice.toFixed(4)), changePercent: pct, previousClose };
         }
-        if (sym === 'XAU/USD' && xauUsd) {
+        if (['XAU/USD', 'GLD/USD', 'ONS'].some(s => sym.includes(s)) && xauUsd) {
           return { ...a, currentPrice: xauUsd, changePercent: goldData.changePct, previousClose: goldData.previousClose };
         }
-        if (sym === 'GRAM/TL' && xauUsd && usdTry) {
-          const gramTry = (xauUsd * usdTry) / 31.1035;
-          const oldPrice = a.currentPrice || a.price;
-          const pct = oldPrice > 0 ? ((gramTry - oldPrice) / oldPrice) * 100 : 0;
-          return { ...a, currentPrice: parseFloat(gramTry.toFixed(2)), changePercent: pct, previousClose: oldPrice };
+        if (['GRAM/TL', 'GLD/TRY', 'ALTIN/TL', 'ALTIN'].some(s => sym.includes(s)) && xauUsd && usdTry) {
+          const currentPrice = (xauUsd * usdTry) / 31.1035;
+          const prevGold = goldData?.previousClose || xauUsd;
+          const prevTry = (prevRates && prevRates.TRY) ? prevRates.TRY : null;
+          const previousClose = prevTry ? (prevGold * prevTry) / 31.1035 : (a.previousClose || currentPrice);
+          const pct = ((currentPrice - previousClose) / previousClose) * 100;
+          return { ...a, currentPrice: parseFloat(currentPrice.toFixed(2)), changePercent: pct, previousClose };
+        }
+
+        // Esnek Döviz Eşleştirmeleri (GBP, JPY, CHF, AUD)
+        if (todayRates) {
+          let targetRate = null;
+          let prevTargetRate = null;
+          
+          if (['GBP/TL', 'GBP/TRY', 'STERLIN'].some(s => sym.includes(s))) {
+            targetRate = todayRates.TRY / todayRates.GBP;
+            prevTargetRate = (prevRates && prevRates.TRY && prevRates.GBP) ? (prevRates.TRY / prevRates.GBP) : a.previousClose;
+          }
+          else if (['JPY/TL', 'JPY/TRY', 'YEN'].some(s => sym.includes(s))) {
+            targetRate = todayRates.TRY / todayRates.JPY;
+            prevTargetRate = (prevRates && prevRates.TRY && prevRates.JPY) ? (prevRates.TRY / prevRates.JPY) : a.previousClose;
+          }
+          else if (['CHF/TL', 'CHF/TRY', 'FRANK'].some(s => sym.includes(s))) {
+            targetRate = todayRates.TRY / todayRates.CHF;
+            prevTargetRate = (prevRates && prevRates.TRY && prevRates.CHF) ? (prevRates.TRY / prevRates.CHF) : a.previousClose;
+          }
+          else if (['AUD/TL', 'AUD/TRY', 'AUD'].some(s => sym.includes(s))) {
+            targetRate = todayRates.TRY / todayRates.AUD;
+            prevTargetRate = (prevRates && prevRates.TRY && prevRates.AUD) ? (prevRates.TRY / prevRates.AUD) : a.previousClose;
+          }
+
+          if (targetRate) {
+            const finalPrevClose = prevTargetRate || a.previousClose || targetRate;
+            const pct = ((targetRate - finalPrevClose) / finalPrevClose) * 100;
+            return { ...a, currentPrice: parseFloat(targetRate.toFixed(4)), changePercent: pct, previousClose: finalPrevClose };
+          }
+        }
+        
+        // Yahoo Finance tabanlı emtialar (Gümüş, Platin, Petrol, Paladyum vb.)
+        const querySymbol = yahooSymbolsMap[sym];
+        if (querySymbol && dataMap[querySymbol]) {
+          const { price, changePct, previousClose } = dataMap[querySymbol];
+          return { ...a, currentPrice: price, changePercent: changePct, previousClose };
         }
       }
 
@@ -302,6 +372,8 @@ export default function App() {
   const [chartHistory, setChartHistory] = useState([]); // FAZ 3: Gerçek Zamanlı Grafik Veritabanı
   const [priceHistory, setPriceHistory] = useState({}); // FAZ 1: Varlıkların Geçmiş Fiyat Veritabanı
   const [activeTab, setActiveTab] = useState('PORTFOLIO');
+
+
   
   const [lang, setLang] = useState('tr'); 
   const [currency, setCurrency] = useState('₺');
@@ -417,7 +489,7 @@ export default function App() {
   const { saveData, loadData, saveLists, refreshPortfolioPrices, saveDailySnapshot, onRefreshMarket, getTimeframeLabel, getFilteredHistory } = usePortfolioData({
     portfolio, setPortfolio, watchlist, setWatchlist, history, setHistory, 
     chartHistory, setChartHistory, priceHistory, setPriceHistory,
-    setLang, setCurrency, setTheme, customLists, setWatchlist, setCustomLists, setUsdToTryRate,
+    setLang, setCurrency, setTheme, customLists, setWatchlist, setCustomLists, setCashBalance, setUsdToTryRate,
     setIsRefreshing, flashAnim, lang, timeFilter,
     t, MarketService, migrateType
   });
@@ -498,18 +570,6 @@ export default function App() {
     return () => clearInterval(pollInterval);
   }, []);
 
-  // Veritabanını güncel tutan motor — portföy değeri yüklendikten sonra çalışır
-  useEffect(() => {
-     if (totalNetCurrentValue <= 0) return; // Portföy henüz yüklenmediyse kaydetme
-     saveDailySnapshot(totalNetCurrentValue, totalCost);
-     const timer = setInterval(() => {
-        if (totalNetCurrentValue > 0) {
-          saveDailySnapshot(totalNetCurrentValue, totalCost);
-        }
-     }, 60000);
-     return () => clearInterval(timer);
-  }, [totalNetCurrentValue, totalCost]);
-
   const onRefreshPortfolio = async () => {
     setIsRefreshingPortfolio(true);
     // USD/TRY kurunu da güncelle
@@ -541,7 +601,7 @@ export default function App() {
         const txTime = tx.timestamp || Date.parse(tx.date) || 0;
         if (txTime >= cutoff) {
           const txType = tx.assetType || 'BIST';
-          const rate = (txType === 'CRYPTO' || txType === 'USA' || txType === 'GOLD') ? usdToTryRate : 1;
+          const rate = isUsdType(txType, tx.name) ? usdToTryRate : 1;
           totalProfit += (tx.netProfit * rate);
           const qty = tx.qty || 0;
           const price = tx.price || 0;
@@ -566,6 +626,28 @@ export default function App() {
 
   // Hesaplama Motoru (Portfolio Engine) devrede
   const { totalCost, totalNetCurrentValue, totalUnrealizedPnL, unrealizedPnLPct } = calculateTotalPortfolio(portfolio, usdToTryRate, cashBalance);
+
+  const snapshotStateRef = useRef({ totalNetCurrentValue: 0, totalCost: 0, portfolio: [] });
+  const saveDailySnapshotRef = useRef(saveDailySnapshot);
+
+  useEffect(() => {
+    snapshotStateRef.current = { totalNetCurrentValue, totalCost: totalCost + cashBalance, portfolio };
+    saveDailySnapshotRef.current = saveDailySnapshot;
+  }, [totalNetCurrentValue, totalCost, cashBalance, portfolio, saveDailySnapshot]);
+
+  const persistPortfolioSnapshot = useCallback(() => {
+    const snapshot = snapshotStateRef.current;
+    if (snapshot.totalNetCurrentValue > 0) {
+      saveDailySnapshotRef.current(snapshot.totalNetCurrentValue, snapshot.totalCost, snapshot.portfolio);
+    }
+  }, []);
+
+  useEffect(() => {
+    persistPortfolioSnapshot();
+    const timer = setInterval(persistPortfolioSnapshot, 5 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, [persistPortfolioSnapshot]);
+
   let unrealizedColor = COLORS.textSub; let unrealizedPrefix = ''; let unrealizedIcon = null;
   if (totalUnrealizedPnL > 0) { unrealizedColor = COLORS.primary; unrealizedPrefix = '+'; unrealizedIcon = 'trending-up'; }
   else if (totalUnrealizedPnL < 0) { unrealizedColor = COLORS.error; unrealizedIcon = 'trending-down'; }
@@ -599,7 +681,7 @@ export default function App() {
 
   // YENİ: PORTFÖY İÇİN DİNAMİK DÖVİZ ÇEVİRİCİ MOTOR
   // getConvertedValue moved to uiHelpers.js
-  const getConvertedValueLocal = (val, type) => getConvertedValue(val, type, currency, usdToTryRate, isUsdType);
+  const getConvertedValueLocal = (val, assetOrType) => getConvertedValue(val, assetOrType, currency, usdToTryRate, isUsdType);
 
   // Hesaplama Motoru: Pasta Grafik (Varlık Dağılımı)
   const pieData = useMemo(() => {
@@ -607,9 +689,9 @@ export default function App() {
   }, [portfolio, usdToTryRate, totalNetCurrentValue, lang]);
 
   const renderCompactItem = useCallback(({ item }) => {
-    const cPrice = item.currentPrice !== undefined ? item.currentPrice : item.price;
-    const avgPrice = item.price;
-    const quantity = item.quantity;
+    const cPrice = (item.currentPrice && item.currentPrice > 0) ? item.currentPrice : item.price;
+    const avgPrice = item.price || 0;
+    const quantity = item.quantity || 0;
     
     // Birim fiyat için doğal para birimi (varlığın kendi birimi)
     const nativeCur = getCurrencySymbol(item.type, item.symbol || item.name);
@@ -619,40 +701,17 @@ export default function App() {
     const rateTL = isNativeUsd ? usdToTryRate : 1;
     const totalValueTL = cPrice * quantity * rateTL;
     
-    let profitTL = 0;
-    let profitPercentage = 0;
-
-    if (timeFilter === '1D') {
-      const prevClose = item.previousClose;
-      
-      if (prevClose && prevClose !== 0) {
-        const cPrice = item.currentPrice || 0;
-        const qty = item.quantity || 0;
-        const rate = (item.type === 'USA' || item.type === 'CRYPTO')
-          ? (usdToTryRate || 1) : 1;
-        
-        profitTL = (cPrice - prevClose) * qty * rate;
-        profitPercentage = ((cPrice - prevClose) / prevClose) * 100;
-      } else {
-        // previousClose yoksa changePercent kullan
-        profitPercentage = item.changePercent || 0;
-        profitTL = (profitPercentage / 100) * 
-          (item.currentPrice || 0) * 
-          (item.quantity || 0) * (isNativeUsd ? usdToTryRate : 1);
-      }
-    } else if (timeFilter === 'ALL') {
-      // ALL: Alış fiyatından itibaren toplam kâr/zarar
-      profitTL = (cPrice - avgPrice) * quantity * rateTL;
-      profitPercentage = avgPrice > 0 ? ((cPrice - avgPrice) / avgPrice) * 100 : 0;
-    } else {
-      // Diğer (1W, 1M vb.): Dönemsel Kâr/Zarar motorunu kullan
-      const pnl = calculatePeriodPnL(item, cPrice, priceHistory[item.name], timeFilter, usdToTryRate);
-      profitTL = pnl.amount;
-      profitPercentage = pnl.percentage;
-    }
+    const pnl = calculateAssetPnLForTimeframe(item, timeFilter, usdToTryRate, priceHistory[item.name]);
+    let profitTL = pnl.amount;
+    let profitPercentage = pnl.percentage;
     
-    const isProfit = profitTL >= 0;
-    const pnlColor = isProfit ? '#00E87A' : '#FF4757';
+    // Floating point gürültüsünü temizle (0.000001 gibi değerleri 0 yap)
+    if (Math.abs(profitTL) < 0.01) profitTL = 0;
+    if (Math.abs(profitPercentage) < 0.01) profitPercentage = 0;
+
+    const isProfit = profitPercentage > 0;
+    const isLoss = profitPercentage < 0;
+    const pnlColor = isProfit ? '#00E87A' : (isLoss ? '#FF4757' : COLORS.textSub);
 
     return (
       <TouchableOpacity 
@@ -753,10 +812,10 @@ export default function App() {
 
         {isMarketEditMode && (
           <TouchableOpacity 
-            style={{ position: 'absolute', top: -8, right: -8, backgroundColor: COLORS.error, borderRadius: 12, padding: 2 }}
+            style={{ position: 'absolute', top: -10, right: -10, backgroundColor: COLORS.error, borderRadius: 15, padding: 3 }}
             onPress={() => marketTabMode === 'GRID' ? removeWatchlistAsset(item.id) : removeCustomListAsset(item.name)}
           >
-             <MaterialIcons name="close" size={14} color="#FFF" />
+             <MaterialIcons name="close" size={17} color="#FFF" />
           </TouchableOpacity>
         )}
       </AnimatedTouchableOpacity>

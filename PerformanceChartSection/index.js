@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { View, StyleSheet, TouchableOpacity, Text, Animated } from 'react-native';
 import ChartCanvas from './ChartCanvas';
 import GestureOverlay from './GestureOverlay';
@@ -7,15 +7,23 @@ import CrosshairLayer from './CrosshairLayer';
 import { formatDate } from './utils/formatter';
 
 export default function PerformanceChartSection({
-  data, liveValue, liveChange, liveChangeAmount, language, currency, locale, viewMode
+  data, liveValue, liveChange, liveChangeAmount, language, currency, locale, viewMode, valueScale = 1
 }) {
   const [dimensions, setDimensions] = useState({ width: 0, height: 220 });
   
-  // Dokunulan noktanın verisini tutar
   const [activePoint, setActivePoint] = useState(null);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  
+  // Mod veya veri değiştiğinde seçili noktayı sıfırla veya güncelle
+  useEffect(() => {
+    if (activeIndex >= 0 && data && data[activeIndex]) {
+      // Eğer kullanıcı hala dokunuyorsa, veriyi güncel data dizisinden tazele
+      setActivePoint(data[activeIndex]);
+    } else if (activeIndex === -1) {
+      setActivePoint(null);
+    }
+  }, [viewMode, data, activeIndex]);
 
-  // 1. ADIM: MATEMATİK VE KOORDİNAT HARİTASI
-  // Bu motor, grafikteki her bir günün/saatin ekranın tam olarak kaçıncı pikseline denk geldiğini hesaplar.
   // 1. ADIM: MATEMATİK VE KOORDİNAT HARİTASI
   const chartCoordinates = useMemo(() => {
     if (!data || data.length < 2 || dimensions.width === 0 || dimensions.height === 0) {
@@ -26,7 +34,6 @@ export default function PerformanceChartSection({
     const minVal = Math.min(...data.map(d => d.value));
     const range = maxVal - minVal || 1;
 
-    // AYNI BÜYÜYÜ HARİTAYA DA EKLİYORUZ (Lazer ile çizgi tam üst üste otursun diye)
     const padding = range * 0.20; 
     const paddedMax = maxVal + padding;
     const paddedMin = minVal - (padding / 2);
@@ -46,35 +53,24 @@ export default function PerformanceChartSection({
     return { xPositions, yPositions };
   }, [data, dimensions]);
 
-  // ÇÖKMEZ MİMARİ: React Native'in saf ve donanımsal (Native Driver) animasyon değeri
-  const activeIndexAnim = useRef(new Animated.Value(-1)).current;
-
-  // Sensörden (GestureOverlay) gelen sinyali yakalayan fonksiyon
-  // DRONE'UN MOTORLARI: X (Sağ-Sol), Y (Aşağı-Yukarı) ve Görünürlük (Opaklık)
-  // DRONE'UN MOTORLARI
-  // DRONE'UN MOTORLARI
   const crosshairX = useRef(new Animated.Value(0)).current;
   const crosshairY = useRef(new Animated.Value(0)).current;
   const crosshairOpacity = useRef(new Animated.Value(0)).current;
 
   const handlePointSelect = useCallback((point, index, fingerX) => {
+    setActiveIndex(index);
     setActivePoint(point);
     
     if (index >= 0 && chartCoordinates.xPositions.length > 0) {
-      // 1. LAZERİN YATAY HAREKETİ (X Ekseninde Yağ Gibi Kayma)
-      // Çizgiyi veri noktasına değil, DOĞRUDAN parmağın pikseline eşitliyoruz
       const minX = chartCoordinates.xPositions[0];
       const maxX = chartCoordinates.xPositions[chartCoordinates.xPositions.length - 1];
-      // Parmağın ekran dışına çıkmasını engelliyoruz
       const safeFingerX = Math.max(minX, Math.min(fingerX, maxX)); 
       
       crosshairX.setValue(safeFingerX);
 
-      // 2. NOKTANIN YÜKSEKLİĞİ (Y Ekseninde İp Üzerinde Kayma)
       let interpolatedY = chartCoordinates.yPositions[index];
 
       if (chartCoordinates.xPositions.length > 1) {
-        // Parmağın hangi iki gün/nokta arasında olduğunu buluyoruz
         const step = dimensions.width / (data.length - 1);
         let leftIdx = Math.floor(safeFingerX / step);
         let rightIdx = leftIdx + 1;
@@ -88,7 +84,6 @@ export default function PerformanceChartSection({
           const y0 = chartCoordinates.yPositions[leftIdx];
           const y1 = chartCoordinates.yPositions[rightIdx];
 
-          // MATEMATİK: İki nokta arasındaki yokuşta noktanın tam olarak nerede durması gerektiğini hesaplar
           interpolatedY = y0 + ((safeFingerX - x0) * (y1 - y0)) / (x1 - x0);
         }
       }
@@ -106,8 +101,12 @@ export default function PerformanceChartSection({
         activePoint={activePoint} 
         liveValue={liveValue} 
         liveChange={liveChange} 
+        liveChangeAmount={liveChangeAmount}
         currency={currency} 
         locale={locale} 
+        viewMode={viewMode}
+        data={data}
+        valueScale={valueScale}
       />
 
       <View 
@@ -118,7 +117,6 @@ export default function PerformanceChartSection({
       >
         {dimensions.width > 0 && (
           <>
-            {/* 1. KATMAN (En Arka): Sabit Grafik Çizgisi */}
             <ChartCanvas 
               data={data} 
               width={dimensions.width} 
@@ -127,7 +125,6 @@ export default function PerformanceChartSection({
               viewMode={viewMode}
             />
             
-            {/* 2. KATMAN (Orta): Drone/Lazer İşaretleyici */}
             <CrosshairLayer 
               xAnim={crosshairX} 
               yAnim={crosshairY} 
@@ -137,7 +134,6 @@ export default function PerformanceChartSection({
               dateText={activePoint ? formatDate(activePoint.date, locale) : ''}
             />
 
-            {/* 3. KATMAN (En Ön): Görünmez Dokunmatik Sensör */}
             <GestureOverlay 
               data={data} 
               width={dimensions.width} 
@@ -146,8 +142,6 @@ export default function PerformanceChartSection({
           </>
         )}
       </View>
-
-
     </View>
   );
 }

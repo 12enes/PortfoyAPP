@@ -108,7 +108,7 @@ export const MarketScreen = ({
                 keyExtractor={item => item.id} 
                 numColumns={2} 
                 renderItem={renderGridItem} 
-                contentContainerStyle={{ paddingHorizontal: 15, paddingBottom: 120 }}
+                contentContainerStyle={{ paddingHorizontal: 15, paddingBottom: 120, paddingTop: 10 }}
                 refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefreshMarket} tintColor={COLORS.primary} colors={[COLORS.primary]} />}
                 ListEmptyComponent={<View style={styles.emptyMarketContainer}><MaterialIcons name="grid-view" size={64} color={COLORS.border} style={{marginBottom: 20}} /><Text style={styles.emptyMarketText}>{t('emptyMarket')}</Text></View>}
               />
@@ -160,7 +160,7 @@ export const MarketScreen = ({
                        keyExtractor={item => typeof item === 'string' ? item : (item.id || item.symbol)} 
                        numColumns={2} 
                        renderItem={renderGridItem} 
-                       contentContainerStyle={{ paddingHorizontal: 15, paddingBottom: 120 }}
+                       contentContainerStyle={{ paddingHorizontal: 15, paddingBottom: 120, paddingTop: 10 }}
                        ListEmptyComponent={<View style={styles.emptyMarketContainer}><Text style={styles.emptyMarketText}>{t('emptyList')}</Text></View>}
                     />
                 </View>
