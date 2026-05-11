@@ -43,14 +43,38 @@ export const SwipeableModal = ({ visible, onClose, children, boxStyle, styles })
     })
   ).current;
 
+  const backdropOpacity = panY.interpolate({
+    inputRange: [0, 300],
+    outputRange: [1, 0],
+    extrapolate: 'clamp'
+  });
+
   useEffect(() => { 
-    if (visible) panY.setValue(0); 
+    if (visible) {
+      panY.setValue(800); // Başlangıçta altta olsun
+      Animated.spring(panY, {
+        toValue: 0,
+        tension: 50,
+        friction: 8,
+        useNativeDriver: true
+      }).start();
+    }
   }, [visible]);
 
   return (
-    <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
-      <KeyboardAvoidingView style={styles.modalOverlayFlexEnd} behavior={Platform.OS === "ios" ? "padding" : "padding"}>
-        <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
+    <Modal visible={visible} animationType="none" transparent={true} onRequestClose={onClose}>
+      <KeyboardAvoidingView style={{ flex: 1, backgroundColor: 'transparent', justifyContent: 'flex-end' }} behavior={Platform.OS === "ios" ? "padding" : "padding"}>
+        <Animated.View 
+          style={[
+            StyleSheet.absoluteFill, 
+            { backgroundColor: 'rgba(0,0,0,1)', opacity: backdropOpacity }
+          ]} 
+        >
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => {
+            Animated.timing(panY, { toValue: 800, duration: 250, useNativeDriver: true }).start(() => onClose());
+          }} />
+        </Animated.View>
+        
         <Animated.View {...panResponder.panHandlers} style={[boxStyle, { transform: [{ translateY: panY }] }]}>
           <View {...handlePanResponder.panHandlers} style={styles.dragHandleContainer}>
             <View style={styles.dragHandle} />

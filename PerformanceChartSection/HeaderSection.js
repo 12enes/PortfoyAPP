@@ -3,14 +3,19 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { formatCurrency } from './utils/formatter';
 
-export default function HeaderSection({ activePoint, liveValue, liveChange, liveChangeAmount, currency, locale, viewMode, data, valueScale = 1 }) {
+export default function HeaderSection({ activePoint, liveValue, liveChange, liveChangeAmount, currency, locale, viewMode, data, valueScale = 1, isBalanceVisible = true }) {
   const isPerformance = viewMode === 'PERFORMANCE';
   let primaryValue = '';
   let secondaryValue = '';
   let primaryColor = '#FFFFFF';
 
-  const formatScaledCurrency = (value) => formatCurrency((value || 0) * valueScale, currency, locale);
+  const formatScaledCurrency = (value) => {
+    if (!isBalanceVisible) return `*** ${currency === 'USD' ? '$' : '₺'}`;
+    return formatCurrency((value || 0) * valueScale, currency, locale);
+  };
+
   const formatSignedScaledCurrency = (value) => {
+    if (!isBalanceVisible) return '***';
     const scaledValue = (value || 0) * valueScale;
     const sign = scaledValue >= 0 ? '+' : '-';
     return `${sign}${formatCurrency(Math.abs(scaledValue), currency, locale)}`;

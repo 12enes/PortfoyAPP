@@ -1,14 +1,22 @@
 import React, { useState, useMemo } from 'react';
-import { useSelector } from 'react-redux';
+import { useSelector, useDispatch } from 'react-redux';
 import { PortfolioScreen } from './PortfolioScreen';
 import { RootState } from '../../app/store';
 import { calculateTotalPortfolio } from '../../../portfolioEngine';
 import { createTranslationFunction } from '../../uiUtils';
+import { toggleBalanceVisibility } from '../settings/settingsSlice';
 import { TRANSLATIONS } from '../../shared/constants/translations';
 import { DARK_THEME, LIGHT_THEME } from '../../shared/constants/themes';
 import { CATEGORY_ORDER } from '../../shared/constants/mockData';
 
-const PortfolioDashboard = ({ composerSignal }: { composerSignal: number }) => {
+const PortfolioDashboard = ({ 
+  composerSignal,
+  onSettingsPress 
+}: { 
+  composerSignal: number,
+  onSettingsPress?: () => void 
+}) => {
+  const dispatch = useDispatch();
   const portfolio = useSelector((state: RootState) => state.portfolio.assets);
   const cashBalance = useSelector((state: RootState) => state.portfolio.cashBalance);
   const priceHistory = useSelector((state: RootState) => state.portfolio.priceHistory);
@@ -72,10 +80,12 @@ const PortfolioDashboard = ({ composerSignal }: { composerSignal: number }) => {
       setProfitModalVisible={() => {}}
       profitScale={dummyScale}
       setCashModalVisible={() => {}}
-      setSettingsVisible={() => {}}
+      setSettingsVisible={onSettingsPress}
       setSelectedPieSlice={() => {}}
       AnimatedTouchableOpacity={null} 
       styles={{}} 
+      isBalanceVisible={settings.isBalanceVisible}
+      toggleBalanceVisibility={() => dispatch(toggleBalanceVisibility())}
     />
   );
 };

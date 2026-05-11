@@ -15,7 +15,8 @@ export const PortfolioScreen = ({
   unrealizedPrefix, totalUnrealizedPnL, unrealizedPnLPct, handleProfitPressIn,
   handleProfitPressOut, setProfitModalVisible, profitScale, setCashModalVisible,
   cashBalance, setSettingsVisible, setSelectedPieSlice, AnimatedTouchableOpacity,
-  priceHistory, setSelectedAssetInfo, setSelectedAssetId, setDetailModalVisible
+  priceHistory, setSelectedAssetInfo, setSelectedAssetId, setDetailModalVisible,
+  isBalanceVisible, toggleBalanceVisibility
 }) => {
   const insets = useSafeAreaInsets();
   const [isChartVisible, setIsChartVisible] = useState(false);
@@ -57,11 +58,11 @@ export const PortfolioScreen = ({
 
         <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
           <Text style={{ color: '#FFFFFF', fontSize: 18, fontWeight: 'bold' }}>
-            ₺{totalValueTL.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {isBalanceVisible ? `₺${totalValueTL.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '***'}
           </Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
             <Text style={{ color: pnlColor, fontSize: 13, fontWeight: '700' }}>
-              {isProfit ? '+' : ''}₺{Math.abs(profitTL).toLocaleString('tr-TR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+              {isBalanceVisible ? (isProfit ? '+' : '') + '₺' + Math.abs(profitTL).toLocaleString('tr-TR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '***'}
             </Text>
             <Text style={{ color: pnlColor, fontSize: 13, fontWeight: '700', marginLeft: 6 }}>
               ({isProfit ? '+' : ''}{profitPercentage.toFixed(2)}%)
@@ -92,21 +93,33 @@ export const PortfolioScreen = ({
         ListHeaderComponent={(
           <View style={{ paddingBottom: 10 }}>
             {/* HERO SECTION */}
-            <View style={{ paddingHorizontal: 20, paddingTop: insets.top + 20, marginBottom: 15 }}>
+            <View style={{ paddingHorizontal: 20, paddingTop: 10, marginBottom: 15 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <View>
-                  <Text style={{ color: COLORS.textSub, fontSize: 11, fontWeight: '600', letterSpacing: 1.5, textTransform: 'uppercase' }}>
-                    {lang === 'tr' ? 'NET VARLIK' : 'NET WORTH'}
-                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Text style={{ color: COLORS.textSub, fontSize: 11, fontWeight: '600', letterSpacing: 1.5, textTransform: 'uppercase' }}>
+                      {lang === 'tr' ? 'NET VARLIK' : 'NET WORTH'}
+                    </Text>
+                    <TouchableOpacity onPress={toggleBalanceVisibility} style={{ marginLeft: 8, padding: 4 }}>
+                      <MaterialIcons 
+                        name={isBalanceVisible ? "visibility" : "visibility-off"} 
+                        size={16} 
+                        color={COLORS.textSub} 
+                      />
+                    </TouchableOpacity>
+                  </View>
                   <TouchableOpacity 
                     onPress={() => { setSelectedPieSlice(null); setDistributionModalVisible(true); }}
                     activeOpacity={0.7}
                   >
                     <Text style={{ fontSize: 42, fontWeight: '800', color: COLORS.textMain, marginTop: 4 }}>
-                      {currency}{(currency === '$' ? totalNetCurrentValue / usdToTryRate : totalNetCurrentValue).toLocaleString('tr-TR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                      {isBalanceVisible ? (currency + (currency === '$' ? totalNetCurrentValue / usdToTryRate : totalNetCurrentValue).toLocaleString('tr-TR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })) : '***'}
                     </Text>
                   </TouchableOpacity>
                 </View>
+                <TouchableOpacity onPress={() => setSettingsVisible(true)} style={{ padding: 8 }}>
+                  <MaterialIcons name="settings" size={24} color={COLORS.textMain} />
+                </TouchableOpacity>
               </View>
 
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
@@ -130,7 +143,10 @@ export const PortfolioScreen = ({
                       style={{ marginRight: 4 }} 
                     />
                     <Text style={{ color: timeframePerformance.amount >= 0 ? COLORS.primary : COLORS.error, fontSize: 14, fontWeight: '700' }}>
-                      {timeframePerformance.amount >= 0 ? '+' : ''}{currency}{Math.abs(currency === '$' ? timeframePerformance.amount / usdToTryRate : timeframePerformance.amount).toLocaleString('tr-TR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} ({timeframePerformance.pct.toFixed(2)}%)
+                      {isBalanceVisible 
+                        ? `${timeframePerformance.amount >= 0 ? '+' : ''}${currency}${Math.abs(currency === '$' ? timeframePerformance.amount / usdToTryRate : timeframePerformance.amount).toLocaleString('tr-TR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} (${timeframePerformance.pct.toFixed(2)}%)`
+                        : `${timeframePerformance.pct.toFixed(2)}%`
+                      }
                     </Text>
                   </View>
                 </TouchableOpacity>
@@ -206,6 +222,7 @@ export const PortfolioScreen = ({
                     locale={lang === 'tr' ? 'tr-TR' : 'en-US'}
                     viewMode={chartViewMode}
                     valueScale={currency === '$' && usdToTryRate ? 1 / usdToTryRate : 1}
+                    isBalanceVisible={isBalanceVisible}
                   />
                 ) : (
                   <View style={{ 
@@ -261,14 +278,14 @@ export const PortfolioScreen = ({
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <AssetIcon asset={{ symbol: 'TRY', type: 'FOREX' }} size={18} />
                 <Text style={{ color: COLORS.textMain, fontSize: 14, fontWeight: '700', marginLeft: 8 }}>
-                  {cashBalance.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  {isBalanceVisible ? cashBalance.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '***'}
                 </Text>
               </View>
               {/* USD Kasa */}
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <AssetIcon asset={{ symbol: 'USD', type: 'FOREX' }} size={18} />
                 <Text style={{ color: COLORS.textMain, fontSize: 14, fontWeight: '700', marginLeft: 8 }}>
-                  {(cashBalance / usdToTryRate).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  {isBalanceVisible ? (cashBalance / usdToTryRate).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '***'}
                 </Text>
               </View>
             </View>

@@ -2,7 +2,7 @@ export const TRANSLATIONS = {
   tr: {
     portfolio: 'Portföy', market: 'Piyasa', marketPulse: 'PİYASA DURUMU', totalAssetValue: 'TOPLAM VARLIK DEĞERİ', peak: 'ZİRVE',
     t1D: '1G', t1W: '1H', t1M: '1A', t1Y: '1Y', tALL: 'TZ', netWorth: 'NET VARLIK', realizedPL: 'GERÇEKLEŞEN KÂR',
-    shares: 'Adet', cost: 'Maliyet', current: 'Güncel', newTx: 'Yeni İşlem', addToWatch: 'Takibe Al',
+    shares: 'Adet', cost: 'Maliyet', current: 'Güncel', newTx: 'Yeni Varlık Ekle', addToWatch: 'Takibe Al',
     addToWatchInfo: 'Bu varlığı izleme listenize eklemek üzeresiniz.',
     searchAsset: 'Varlık ara (Örn: THYAO, AAPL)', noResults: 'Sonuç bulunamadı.', customAsset: 'Özel Varlık Ekle',
     buyPrice: 'Alış Fiyatı', currentPrice: 'Güncel Fiyat', quantity: 'Adet', note: 'Kişisel Not & Strateji...',

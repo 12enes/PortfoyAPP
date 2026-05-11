@@ -1,5 +1,7 @@
 import 'react-native-gesture-handler';
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { Provider } from 'react-redux';
+import { store } from './src/app/store';
 import { StyleSheet, Text, View, TextInput, TouchableOpacity, SectionList, Modal, Alert, SafeAreaView, ScrollView, StatusBar, KeyboardAvoidingView, Platform, FlatList, LayoutAnimation, UIManager, Animated, PanResponder, Dimensions, RefreshControl, TouchableWithoutFeedback } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -366,11 +368,36 @@ const MarketService = {
 };
 
 export default function App() {
+  return (
+    <Provider store={store}>
+      <AppRoot />
+    </Provider>
+  );
+}
+
+function AppRoot() {
   const [portfolio, setPortfolio] = useState([]);
   const [watchlist, setWatchlist] = useState([]);
   const [history, setHistory] = useState([]);
   const [chartHistory, setChartHistory] = useState([]); // FAZ 3: Gerçek Zamanlı Grafik Veritabanı
   const [priceHistory, setPriceHistory] = useState({}); // FAZ 1: Varlıkların Geçmiş Fiyat Veritabanı
+  const [isBalanceVisible, setIsBalanceVisible] = useState(true);
+
+  // Uygulama açılışında gizlilik ayarını yükle
+  useEffect(() => {
+    const loadVisibility = async () => {
+      const saved = await AsyncStorage.getItem('@balance_visibility');
+      if (saved !== null) setIsBalanceVisible(saved === 'true');
+    };
+    loadVisibility();
+  }, []);
+
+  const toggleBalanceVisibility = async () => {
+    const newVal = !isBalanceVisible;
+    setIsBalanceVisible(newVal);
+    await AsyncStorage.setItem('@balance_visibility', newVal.toString());
+  };
+
   const [activeTab, setActiveTab] = useState('PORTFOLIO');
 
 
@@ -403,7 +430,8 @@ export default function App() {
     ).start();
   }, []);
   
-  const [marketTabMode, setMarketTabMode] = useState('GRID'); 
+  const [marketTabMode, setMarketTabMode] = useState('GRID');
+  const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [customLists, setCustomLists] = useState([]); 
   const [selectedListId, setSelectedListId] = useState(null); 
   const [listModalVisible, setListModalVisible] = useState(false);
@@ -419,6 +447,7 @@ export default function App() {
   const [isMarketEditMode, setIsMarketEditMode] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRefreshingPortfolio, setIsRefreshingPortfolio] = useState(false);
+  const [isPagerDisabled, setIsPagerDisabled] = useState(false);
 
 
 
@@ -522,8 +551,15 @@ export default function App() {
   });
 
   const handleCenterButton = () => {
-    setIsAddMoreMode(false); 
-    setSearchResults(MOCK_ASSETS[assetType]); 
+    setIsAddMoreMode(false);
+    // Piyasa ekranındayken ve belirli bir kategori seçiliyse, arama modalını o kategoriye kilitle
+    if (activeTab === 'MARKET' && marketTabMode === 'GRID' && selectedCategory !== 'ALL') {
+      const catTypeMap = { BIST: 'BIST', USA: 'USA', CRYPTO: 'CRYPTO', GOLD: 'GOLD', TEFAS: 'TEFAS' };
+      const mappedType = catTypeMap[selectedCategory] || 'BIST';
+      handleCategoryChange(mappedType);
+    } else {
+      setSearchResults(MOCK_ASSETS[assetType]);
+    }
     if (activeTab === 'MARKET' && marketTabMode === 'LISTS' && !selectedListId) {
        setListNameInput(''); setEditingListId(null); setListError(''); setListModalVisible(true);
     } else {
@@ -744,20 +780,20 @@ export default function App() {
         {/* SAĞ TARAF - Her zaman TL */}
         <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
           <Text style={{ color: '#FFFFFF', fontSize: 18, fontWeight: 'bold' }}>
-            ₺{totalValueTL.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {isBalanceVisible ? `₺${totalValueTL.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '***'}
           </Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
             <Text style={{ color: pnlColor, fontSize: 13, fontWeight: '700' }}>
-              {isProfit ? '+' : ''}₺{Math.abs(profitTL).toLocaleString('tr-TR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+              {isBalanceVisible ? (isProfit ? '+' : '') + '₺' + Math.abs(profitTL).toLocaleString('tr-TR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '***'}
             </Text>
             <Text style={{ color: pnlColor, fontSize: 13, fontWeight: '700', marginLeft: 6 }}>
-              ({isProfit ? '+' : ''}{profitPercentage.toFixed(2)}%)
+              {isBalanceVisible ? `(${isProfit ? '+' : ''}${profitPercentage.toFixed(2)}%)` : ''}
             </Text>
           </View>
         </View>
       </TouchableOpacity>
     );
-  }, [timeFilter, usdToTryRate, priceHistory, setSelectedAssetInfo, setSelectedAssetId, setDetailModalVisible]);
+  }, [timeFilter, usdToTryRate, priceHistory, setSelectedAssetInfo, setSelectedAssetId, setDetailModalVisible, isBalanceVisible]);
 
   const renderGridItem = useCallback(({ item }) => {
     let cPrice = 0; let pct = 0;
@@ -789,6 +825,15 @@ export default function App() {
     const changeColor = isProfit ? COLORS.primary : (isLoss ? COLORS.error : COLORS.textSub);
     const arrowIcon = isProfit ? 'arrow-upward' : (isLoss ? 'arrow-downward' : 'remove');
 
+    const assetName = (item?.name || '').toUpperCase();
+    const assetSymbol = (item?.symbol || '').toUpperCase();
+    const isUsdBased = 
+      item.type === 'USA' || 
+      item.type === 'CRYPTO' ||
+      assetName.includes('USD') || assetName.includes('XAU') ||
+      assetName.includes('XAG') || assetName.includes('BRENT') ||
+      assetSymbol.includes('USD');
+
     return (
       <AnimatedTouchableOpacity 
         style={[styles.gridCard, isMarketEditMode && styles.gridCardEditMode, isMarketEditMode && wiggleStyle]} 
@@ -801,7 +846,10 @@ export default function App() {
         </View>
         <Text style={styles.gridSymbol} numberOfLines={1}>{item.symbol || item.name}</Text>
         <Text style={styles.gridPrice}>
-          {getCurrencySymbol(item.type, item.symbol || item.name)}{cPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          {isUsdBased ? '$' : '₺'}
+          {isUsdBased 
+            ? cPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+            : Math.round(cPrice).toLocaleString('tr-TR')}
         </Text>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <MaterialIcons name={arrowIcon} size={12} color={changeColor} style={{ marginRight: 2 }} />
@@ -820,7 +868,7 @@ export default function App() {
         )}
       </AnimatedTouchableOpacity>
     );
-  }, [marketTabMode, isMarketEditMode, wiggleStyle, COLORS, styles, t, removeWatchlistAsset, removeCustomListAsset, setSelectedAssetInfo, setSelectedAssetId, setDetailModalVisible, setIsMarketEditMode]);
+  }, [marketTabMode, isMarketEditMode, wiggleStyle, COLORS, styles, t, removeWatchlistAsset, removeCustomListAsset, setSelectedAssetInfo, setSelectedAssetId, setDetailModalVisible, setIsMarketEditMode, isBalanceVisible]);
 
   const currentDetailAsset = (portfolio.find(a => a.id === selectedAssetId) || watchlist.find(a => a.id === selectedAssetId)) || selectedAssetInfo;
 
@@ -837,6 +885,7 @@ export default function App() {
         style={{flex: 1}}
         initialPage={0}
         overdrag={true}
+        scrollEnabled={false}
         onPageScroll={(e) => { pageScrollPos.setValue(e.nativeEvent.position + e.nativeEvent.offset); }}
         onPageSelected={(e) => { setActiveTab(e.nativeEvent.position === 0 ? 'PORTFOLIO' : 'MARKET'); }}
       >
@@ -880,6 +929,8 @@ export default function App() {
           setSettingsVisible={setSettingsVisible}
           setSelectedPieSlice={setSelectedPieSlice}
           AnimatedTouchableOpacity={AnimatedTouchableOpacity}
+          isBalanceVisible={isBalanceVisible}
+          toggleBalanceVisibility={toggleBalanceVisibility}
         />
 
 
@@ -897,7 +948,7 @@ export default function App() {
           setEditingListId={setEditingListId}
           setListError={setListError}
           setListModalVisible={setListModalVisible}
-          setSettingsVisible={setSettingsVisible}
+          onSettingsPress={() => setSettingsVisible(true)}
           watchlist={watchlist}
           renderGridItem={renderGridItem}
           isRefreshing={isRefreshing}
@@ -908,6 +959,9 @@ export default function App() {
           MOCK_ASSETS={MOCK_ASSETS}
           MarketService={MarketService}
           setWatchlist={setWatchlist}
+          selectedCategory={selectedCategory}
+          setSelectedCategory={setSelectedCategory}
+          setIsPagerDisabled={setIsPagerDisabled}
         />
       </PagerView>
 
@@ -932,16 +986,56 @@ export default function App() {
             </View>
           </TouchableOpacity>
           
-          <TouchableOpacity 
-            style={styles.navItemCenter} 
-            onPress={handleCenterButton}
-            activeOpacity={0.8}
-          >
-            <Animated.View style={[styles.navItemCenterInner, { transform: [{ scale: fabScale }] }]}>
-              <View style={[StyleSheet.absoluteFill, { borderRadius: 30, backgroundColor: 'rgba(255, 255, 255, 0.05)' }]} />
-              <MaterialIcons name="add" size={32} color="#FFFFFF" style={{ shadowColor: '#FFF', shadowOpacity: 0.2, shadowRadius: 10 }} />
-            </Animated.View>
-          </TouchableOpacity>
+          <View style={styles.navItemCenterWrapper}>
+            <TouchableOpacity 
+              style={styles.navItemCenter} 
+              onPress={handleCenterButton}
+              activeOpacity={0.8}
+            >
+              <Animated.View style={[styles.navItemCenterInner, { transform: [{ scale: fabScale }] }]}>
+                <View style={[StyleSheet.absoluteFill, { borderRadius: 30, backgroundColor: 'rgba(255, 255, 255, 0.05)' }]} />
+                <View style={{ justifyContent: 'center', alignItems: 'center', width: 40, height: 40 }}>
+                  {/* Subtle Embossed Glow Effect */}
+                  <View style={{ 
+                    position: 'absolute', 
+                    width: 28, 
+                    height: 28, 
+                    backgroundColor: '#6FCFD6', 
+                    borderRadius: 14, 
+                    opacity: 0.15, 
+                    transform: [{scale: 1.5}],
+                    blurRadius: 10 
+                  }} />
+                  
+                  {/* Custom Pill-Shaped Plus Symbol */}
+                  {/* Horizontal Bar */}
+                  <View style={{ 
+                    position: 'absolute',
+                    width: 24, 
+                    height: 6, 
+                    borderRadius: 4, 
+                    backgroundColor: '#F5F5F7',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 1 },
+                    shadowOpacity: 0.1,
+                    shadowRadius: 1.5,
+                  }} />
+                  {/* Vertical Bar */}
+                  <View style={{ 
+                    position: 'absolute',
+                    width: 6, 
+                    height: 24, 
+                    borderRadius: 4, 
+                    backgroundColor: '#F5F5F7',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 1 },
+                    shadowOpacity: 0.1,
+                    shadowRadius: 1.5,
+                  }} />
+                </View>
+              </Animated.View>
+            </TouchableOpacity>
+          </View>
 
           <TouchableOpacity 
             style={styles.navItem} 
@@ -1043,6 +1137,7 @@ export default function App() {
         note={note}
         setNote={setNote}
         addAsset={addAsset}
+        lockedCategory={activeTab === 'MARKET' && marketTabMode === 'GRID' && selectedCategory !== 'ALL' ? selectedCategory : null}
       />
 
       <DetailModal 
@@ -1066,6 +1161,9 @@ export default function App() {
         setSellModalVisible={setSellModalVisible}
         theme={theme}
         deleteAsset={deleteAsset}
+        isBalanceVisible={isBalanceVisible}
+        priceHistory={priceHistory}
+        usdToTryRate={usdToTryRate}
       />
 
       <ListOptionsModal 
@@ -1154,6 +1252,11 @@ const getStyles = (COLORS) => StyleSheet.create({
   headerIcons: { flexDirection: 'row', alignItems: 'center' },
   pageTitle: { color: COLORS.textMain, fontSize: 32, fontWeight: '900', letterSpacing: -0.5 },
   
+  headerTop: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  headerLabel: { color: 'rgba(255,255,255,0.7)', fontSize: 13, fontFamily: Platform.OS === 'ios' ? 'Inter-Medium' : 'sans-serif-medium' },
+  visibilityToggle: { marginLeft: 8, padding: 4 },
+  headerValue: { color: '#FFFFFF', fontSize: 32, fontWeight: '700', letterSpacing: -0.5 },
+
   headerTabSwitcher: { flexDirection: 'row', backgroundColor: '#16161A', borderRadius: 12, padding: 4, width: '65%' },
   headerTab: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8 },
   headerTabActive: { backgroundColor: '#2A2A35' },
@@ -1189,7 +1292,7 @@ const getStyles = (COLORS) => StyleSheet.create({
 
   dragHandleContainer: { width: '100%', alignItems: 'center', paddingTop: 15, paddingBottom: 20 },
   dragHandle: { width: 40, height: 4, backgroundColor: COLORS.textSub, borderRadius: 2, opacity: 0.5 },
-  modalOverlayFlexEnd: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: 'flex-end' },
+  modalOverlayFlexEnd: { flex: 1, backgroundColor: 'transparent', justifyContent: 'flex-end' },
   
   donutContainer: { alignItems: 'center', justifyContent: 'center', position: 'relative', marginVertical: 5 },
   donutCenterTextContainer: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
@@ -1233,12 +1336,33 @@ const getStyles = (COLORS) => StyleSheet.create({
   
   emptyText: { textAlign: 'center', marginTop: 20, marginBottom: 20, color: COLORS.textSub, fontSize: 14, fontStyle: 'italic' },
   
-  bottomNavContainer: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(10, 10, 12, 0.85)', borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.08)', paddingBottom: 12, paddingTop: 8 },
-  bottomNav: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 50 },
-  navItem: { alignItems: 'center', justifyContent: 'center', minWidth: 80 },
-  navText: { fontSize: 10, color: '#8A8A9A', fontWeight: '600', marginTop: 2, letterSpacing: 0.5 },
-  navItemCenter: { marginTop: -12, alignItems: 'center', justifyContent: 'center' },
-  navItemCenterInner: { width: 60, height: 60, borderRadius: 30, backgroundColor: 'rgba(255, 255, 255, 0.05)', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.1)', shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+  bottomNav: { 
+    flexDirection: 'row', 
+    backgroundColor: '#0F0F12', 
+    marginHorizontal: 15,
+    marginBottom: 10,
+    borderRadius: 24,
+    height: 65, 
+    alignItems: 'center', 
+    justifyContent: 'space-around', 
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 20
+  },
+  navItem: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  navItemCenterWrapper: {
+    marginTop: -35,
+    backgroundColor: '#0F0F12', 
+    borderRadius: 40,
+    padding: 6,
+  },
+  navItemCenter: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#1A1A1E', justifyContent: 'center', alignItems: 'center' },
+  navItemCenterInner: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#839DD6', justifyContent: 'center', alignItems: 'center', borderWidth: 1.5, borderColor: '#A883D6' },
+  navText: { color: '#8A8A9A', fontSize: 10, fontWeight: '700', marginTop: 4 },
   
   modalBox: { backgroundColor: COLORS.surface, padding: 25, paddingTop: 5, paddingBottom: 40, borderTopLeftRadius: 30, borderTopRightRadius: 30, zIndex: 2 },
   modalTitle: { color: COLORS.textMain, fontSize: 20, fontWeight: '900', marginBottom: 20 },

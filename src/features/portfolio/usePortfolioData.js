@@ -295,9 +295,158 @@ export const usePortfolioData = (deps) => {
       if (sPort) {
         const parsedPort = JSON.parse(sPort).map(item => ({...item, type: migrateType(item.type)}));
         refreshPortfolioPrices(parsedPort);
+        
+        // BUGÜNÜN VERİSİ YOKSA GÜN İÇİ GEÇMİŞİ ÇEK
+        const parsedChart = sChart ? JSON.parse(sChart) : [];
+        const todayStr = new Date().toISOString().split('T')[0];
+        const hasTodaySnap = (parsedChart || []).some(s => s.date === todayStr);
+        if (!hasTodaySnap && parsedPort.length > 0) {
+          fetchIntradaySnapshots(parsedPort, parsedChart);
+        }
       }
     } catch (e) { 
       Alert.alert(t('alertWarning'), "Error loading data"); 
+    }
+  };
+
+  const fetchIntradaySnapshots = async (targetPortfolio = portfolio, currentChartHistory = chartHistory) => {
+    try {
+      const activeAssets = targetPortfolio.filter(a => a.quantity > 0 && a.type !== 'TEFAS');
+      if (activeAssets.length === 0) return;
+
+      const results = {}; // symbol -> { timestamp: price }
+      const allTimestamps = new Set();
+
+      await Promise.all(activeAssets.map(async (asset) => {
+        let url = '';
+        let type = asset.type;
+        let symbol = asset.symbol || asset.name;
+
+        if (type === 'BIST') {
+          url = `https://query2.finance.yahoo.com/v8/finance/chart/${symbol.endsWith('.IS') ? symbol : symbol + '.IS'}?interval=5m&range=1d`;
+        } else if (type === 'USA') {
+          url = `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?interval=5m&range=1d`;
+        } else if (type === 'CRYPTO') {
+          url = `https://api.binance.com/api/v3/klines?symbol=${symbol.toUpperCase()}USDT&interval=5m&limit=200`;
+        } else if (type === 'GOLD' || type === 'FOREX') {
+          // Altın ve Emtia için Yahoo eşleşmesi
+          let yahooSymbol = symbol;
+          if (symbol.includes('ALTIN') || symbol.includes('XAU')) yahooSymbol = 'GC=F';
+          else if (symbol.includes('GUMUS') || symbol.includes('XAG')) yahooSymbol = 'SI=F';
+          else if (symbol.includes('BRENT')) yahooSymbol = 'BZ=F';
+          else if (symbol.includes('PLATIN')) yahooSymbol = 'PL=F';
+          else return; // Desteklenmeyenler için pas geç
+          url = `https://query2.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?interval=5m&range=1d`;
+        } else {
+          return;
+        }
+
+        try {
+          const res = await fetch(url, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' }
+          });
+          if (!res.ok) return;
+          const data = await res.json();
+
+          const assetPrices = {};
+          if (type === 'CRYPTO') {
+             // Binance Format: [ [ts, o, h, l, c, ...], ... ]
+             (data || []).forEach(k => {
+               const ts = Math.floor(k[0] / 60000) * 60000; // Dakikaya yuvarla
+               const price = parseFloat(k[4]);
+               assetPrices[ts] = price;
+               allTimestamps.add(ts);
+             });
+          } else {
+             // Yahoo Format
+             const result = data.chart?.result?.[0];
+             if (!result || !result.timestamp) return;
+             const tsArr = result.timestamp;
+             const priceArr = result.indicators.quote[0].close;
+             tsArr.forEach((ts, idx) => {
+               const fullTs = Math.floor((ts * 1000) / 60000) * 60000;
+               const p = priceArr[idx];
+               if (p !== null && p !== undefined) {
+                 assetPrices[fullTs] = p;
+                 allTimestamps.add(fullTs);
+               }
+             });
+          }
+          results[asset.name] = assetPrices;
+        } catch (err) { /* sessiz hata */ }
+      }));
+
+      if (allTimestamps.size === 0) return;
+
+      // Tüm timestamp'ler için portföy değerini hesapla
+      const sortedTs = Array.from(allTimestamps).sort((a, b) => a - b);
+      const todayStr = new Date().toISOString().split('T')[0];
+      const newSnaps = [];
+
+      sortedTs.forEach(ts => {
+        let totalVal = 0;
+        let totalCost = 0;
+        const pricesAtT = {};
+
+        targetPortfolio.forEach(asset => {
+          const qty = asset.quantity || 0;
+          if (qty <= 0) return;
+
+          // Bu an için fiyat bul (veya en yakın önceki fiyatı bul)
+          let priceAtT = results[asset.name]?.[ts];
+          
+          // Eğer o an için fiyat yoksa, önceki noktalara bak (Forward fill)
+          if (priceAtT === undefined) {
+             const prevTs = sortedTs.filter(t => t < ts && results[asset.name]?.[t] !== undefined).pop();
+             priceAtT = prevTs ? results[asset.name][prevTs] : (asset.currentPrice || asset.price);
+          }
+
+          const rate = 1; // Basitlik için 1, istenirse anlık kur eklenebilir
+          // Not: Kur değişimi gün içinde çok dramatik olmadığı için anlık kur yeterli olacaktır.
+          // Ancak AssetRateToTry mantığına sadık kalmak için:
+          const isUsd = (asset.type === 'CRYPTO' || asset.type === 'USA' || (asset.symbol || '').includes('USD'));
+          const finalRate = isUsd ? (deps.usdToTryRate || 1) : 1;
+
+          totalVal += priceAtT * qty * finalRate;
+          totalCost += (asset.price || 0) * qty * finalRate;
+          pricesAtT[asset.name] = priceAtT;
+        });
+
+        if (totalVal > 0) {
+          newSnaps.push({
+            timestamp: ts,
+            date: todayStr,
+            value: totalVal,
+            cost: totalCost,
+            prices: pricesAtT
+          });
+        }
+      });
+
+      if (newSnaps.length > 0) {
+        const mergedHistory = [...currentChartHistory, ...newSnaps].sort((a, b) => a.timestamp - b.timestamp);
+        // De-clustering: Çok yakın noktaları (5dk'dan az) temizle
+        const finalHistory = mergedHistory.filter((snap, i) => {
+          if (i === 0) return true;
+          return snap.timestamp - mergedHistory[i-1].timestamp >= 4 * 60 * 1000;
+        });
+
+        setChartHistory(finalHistory);
+        saveData('@chart_history', finalHistory);
+        
+        // Price History'i de güncelle
+        const updatedPriceHistory = { ...priceHistory };
+        newSnaps.forEach(s => {
+          Object.entries(s.prices).forEach(([sym, p]) => {
+            if (!updatedPriceHistory[sym]) updatedPriceHistory[sym] = {};
+            updatedPriceHistory[sym][s.timestamp] = p;
+          });
+        });
+        setPriceHistory(updatedPriceHistory);
+        saveData('@price_history', updatedPriceHistory);
+      }
+    } catch (e) {
+      console.error('fetchIntradaySnapshots error:', e);
     }
   };
 

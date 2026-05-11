@@ -57,7 +57,7 @@ export const calculateAssetPnL = (asset, livePrice, usdToTryRate = 1) => {
 };
 
 // 2.b. ZAMAN DİLİMLİ VARLIK HESAPLAYICI (PRO)
-export const calculateAssetPnLForTimeframe = (asset, timeFilter, usdToTryRate = 1, priceHistory = null) => {
+export const calculateAssetPnLForTimeframe = (asset, timeFilter, usdToTryRate = 1, priceHistory = null, chartHistory = []) => {
     const cPrice = (asset.currentPrice && asset.currentPrice > 0) ? asset.currentPrice : (asset.price || 0);
     const avgPrice = asset.price || 0;
     const qty = asset.quantity || 0;
@@ -75,7 +75,21 @@ export const calculateAssetPnLForTimeframe = (asset, timeFilter, usdToTryRate = 
     // Zaman dilimi eşiğini hesapla
     let cutoff = 0;
     switch (timeFilter) {
-        case '1D': cutoff = now - 24 * 60 * 60 * 1000; break;
+        case '1D': {
+            const todayStr = new Date().toLocaleDateString('tr-TR');
+            const firstTodaySnap = chartHistory
+                .filter(s => new Date(s.timestamp).toLocaleDateString('tr-TR') === todayStr)
+                .sort((a,b) => a.timestamp - b.timestamp)[0];
+            
+            if (firstTodaySnap) {
+                cutoff = firstTodaySnap.timestamp;
+            } else {
+                const midnight = new Date();
+                midnight.setHours(0, 0, 0, 0);
+                cutoff = midnight.getTime();
+            }
+            break;
+        }
         case '1W': cutoff = now - 7 * 24 * 60 * 60 * 1000; break;
         case '1M': cutoff = now - 30 * 24 * 60 * 60 * 1000; break;
         case '3M': cutoff = now - 90 * 24 * 60 * 60 * 1000; break;
@@ -93,7 +107,7 @@ export const calculateAssetPnLForTimeframe = (asset, timeFilter, usdToTryRate = 
         refPrice = avgPrice;
     } else {
         // Geçmişten gelen varlık için dönem başı fiyatını bul
-        refPrice = getReferencePrice(asset, priceHistory, timeFilter);
+        refPrice = getReferencePrice(asset, priceHistory, timeFilter, chartHistory);
     }
 
     // 1D özel durumu: Eğer varlık eski ama 1D bakıyorsak dünkü kapanışı bulmaya çalış (Hisse performansını görmek için)
@@ -144,7 +158,7 @@ export const calculateTotalPortfolio = (portfolio, usdToTryRate, cashBalance = 0
 };
 
 // 4. REFERANS FİYAT HESAPLAYICI (ZAMAN MAKİNESİ YENİ VERSİYON)
-export const getReferencePrice = (asset, assetPriceHistory, timeframe) => {
+export const getReferencePrice = (asset, assetPriceHistory, timeframe, chartHistory = []) => {
     if (timeframe === 'ALL' || !assetPriceHistory) {
         return asset.price;
     }
@@ -152,7 +166,21 @@ export const getReferencePrice = (asset, assetPriceHistory, timeframe) => {
     const now = Date.now();
     let cutoff = 0;
     switch(timeframe) {
-        case '1D': cutoff = now - 24 * 60 * 60 * 1000; break;
+        case '1D': {
+            const todayStr = new Date().toLocaleDateString('tr-TR');
+            const firstTodaySnap = chartHistory
+                .filter(s => new Date(s.timestamp).toLocaleDateString('tr-TR') === todayStr)
+                .sort((a,b) => a.timestamp - b.timestamp)[0];
+            
+            if (firstTodaySnap) {
+                cutoff = firstTodaySnap.timestamp;
+            } else {
+                const midnight = new Date();
+                midnight.setHours(0, 0, 0, 0);
+                cutoff = midnight.getTime();
+            }
+            break;
+        }
         case '1W': cutoff = now - 7 * 24 * 60 * 60 * 1000; break;
         case '1M': cutoff = now - 30 * 24 * 60 * 60 * 1000; break;
         case '3M': cutoff = now - 90 * 24 * 60 * 60 * 1000; break;
@@ -264,7 +292,21 @@ export const getPortfolioPerformanceByTimeframe = (totalNetCurrentValue, chartHi
     let cutoff = 0;
     
     switch (timeframe) {
-        case '1D': cutoff = now - 24 * 60 * 60 * 1000; break;
+        case '1D': {
+            const todayStr = new Date().toLocaleDateString('tr-TR');
+            const firstTodaySnap = chartHistory
+                .filter(s => new Date(s.timestamp).toLocaleDateString('tr-TR') === todayStr)
+                .sort((a,b) => a.timestamp - b.timestamp)[0];
+            
+            if (firstTodaySnap) {
+                cutoff = firstTodaySnap.timestamp;
+            } else {
+                const midnight = new Date();
+                midnight.setHours(0, 0, 0, 0);
+                cutoff = midnight.getTime();
+            }
+            break;
+        }
         case '1W': cutoff = now - 7 * 24 * 60 * 60 * 1000; break;
         case '1M': cutoff = now - 30 * 24 * 60 * 60 * 1000; break;
         case '3M': cutoff = now - 90 * 24 * 60 * 60 * 1000; break;
@@ -295,7 +337,21 @@ export const calculateAdvancedChartData = (chartHistory, timeFilter, totalNetCur
     const now = Date.now();
     let cutoff = 0;
     switch (timeFilter) {
-        case '1D': cutoff = now - 24 * 60 * 60 * 1000; break;
+        case '1D': {
+            const todayStr = new Date().toLocaleDateString('tr-TR');
+            const firstTodaySnap = chartHistory
+                .filter(s => new Date(s.timestamp).toLocaleDateString('tr-TR') === todayStr)
+                .sort((a,b) => a.timestamp - b.timestamp)[0];
+            
+            if (firstTodaySnap) {
+                cutoff = firstTodaySnap.timestamp;
+            } else {
+                const midnight = new Date();
+                midnight.setHours(0, 0, 0, 0);
+                cutoff = midnight.getTime();
+            }
+            break;
+        }
         case '1W': cutoff = now - 7 * 24 * 60 * 60 * 1000; break;
         case '1M': cutoff = now - 30 * 24 * 60 * 60 * 1000; break;
         case '3M': cutoff = now - 90 * 24 * 60 * 60 * 1000; break;

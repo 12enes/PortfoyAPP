@@ -7,7 +7,8 @@ import CrosshairLayer from './CrosshairLayer';
 import { formatDate } from './utils/formatter';
 
 export default function PerformanceChartSection({
-  data, liveValue, liveChange, liveChangeAmount, language, currency, locale, viewMode, valueScale = 1
+  data, liveValue, liveChange, liveChangeAmount, language, currency, locale, viewMode, valueScale = 1,
+  isBalanceVisible = true
 }) {
   const [dimensions, setDimensions] = useState({ width: 0, height: 220 });
   
@@ -107,6 +108,7 @@ export default function PerformanceChartSection({
         viewMode={viewMode}
         data={data}
         valueScale={valueScale}
+        isBalanceVisible={isBalanceVisible}
       />
 
       <View 

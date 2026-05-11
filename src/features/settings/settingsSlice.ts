@@ -4,12 +4,14 @@ interface SettingsState {
   theme: 'light' | 'dark';
   language: 'tr' | 'en';
   currency: '₺' | '$';
+  isBalanceVisible: boolean;
 }
 
 const initialState: SettingsState = {
   theme: 'dark',
   language: 'tr',
   currency: '₺',
+  isBalanceVisible: true,
 };
 
 const settingsSlice = createSlice({
@@ -25,11 +27,14 @@ const settingsSlice = createSlice({
     setCurrency: (state, action: PayloadAction<'₺' | '$'>) => {
       state.currency = action.payload;
     },
+    toggleBalanceVisibility: (state) => {
+      state.isBalanceVisible = !state.isBalanceVisible;
+    },
     hydrateSettings: (state, action: PayloadAction<Partial<SettingsState>>) => {
       return { ...state, ...action.payload };
     },
   },
 });
 
-export const { setTheme, setLanguage, setCurrency, hydrateSettings } = settingsSlice.actions;
+export const { setTheme, setLanguage, setCurrency, toggleBalanceVisibility, hydrateSettings } = settingsSlice.actions;
 export default settingsSlice.reducer;
