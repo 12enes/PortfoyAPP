@@ -113,16 +113,17 @@ export const usePortfolio = (deps) => {
 
     resetAddModal();
 
-    if (activeTab === 'PORTFOLIO') {
-      setTimeout(async () => {
-        const historyData = await MarketService.fetchHistoricalPrices(finalSymbol, assetType, 30);
+    // Her yeni varlık için 1 yıllık geçmiş veri çek (Portföy veya Piyasa fark etmez)
+    setTimeout(async () => {
+      const historyData = await MarketService.fetchHistoricalPrices(finalSymbol, assetType, 365);
+      if (historyData && Object.keys(historyData).length > 0) {
         setPriceHistory(prev => {
           const updatedHistory = { ...prev, [finalSymbol]: historyData };
           AsyncStorage.setItem('@price_history', JSON.stringify(updatedHistory));
           return updatedHistory;
         });
-      }, 500);
-    }
+      }
+    }, 500);
   };
 
   const deleteAsset = (id) => { 

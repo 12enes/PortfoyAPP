@@ -35,7 +35,12 @@ export const MarketService = {
   // Yahoo Finance: BIST (.IS), ABD (AAPL vs), Emtia
   _fetchYahooFinance: async (symbol: string) => {
     try {
-      const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`);
+      const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'Accept': 'application/json'
+        }
+      });
       if (!res.ok) throw new Error(`Yahoo HTTP ${res.status}`);
       const data = await res.json();
       if (!data.chart || !data.chart.result || !data.chart.result[0]) return null;
@@ -117,7 +122,7 @@ export const MarketService = {
     const needsCrypto = assets.some(a => a.type === 'CRYPTO');
     const needsGold = assets.some(a => a.type === 'GOLD' || ['XAU/USD', 'GRAM/TL'].includes(a.symbol || a.name));
     const needsForex = assets.some(a => a.type === 'GOLD' || ['DOLAR/TL', 'EURO/TL', 'GBP', 'STERLIN', 'YEN', 'FRANK', 'AUD', 'GRAM/TL'].some(s => (a.symbol || a.name || '').includes(s)));
-    const needsYahoo = assets.some(a => a.type === 'BIST' || a.type === 'USA' || ['BRENT', 'BZ', 'SILVER', 'XAG/USD', 'GUMUS', 'GLD/AG', 'PLATINUM', 'PLATIN', 'PL', 'NATURALGAZ', 'PALADYUM', 'PALADIUM', 'PALLADIUM', 'PA'].some(s => (a.symbol || a.name || '').includes(s)));
+    const needsYahoo = assets.some(a => a.type === 'BIST' || a.type === 'USA' || a.type === 'INDEX' || ['BRENT', 'BZ', 'SILVER', 'XAG/USD', 'GUMUS', 'GLD/AG', 'PLATINUM', 'PLATIN', 'PL', 'NATURALGAZ', 'PALADYUM', 'PALADIUM', 'PALLADIUM', 'PA'].some(s => (a.symbol || a.name || '').includes(s)));
     const needsTefas = assets.some(a => a.type === 'TEFAS');
     
     const cryptoSymbols = [...new Set(assets.filter(a => a.type === 'CRYPTO').map(a => a.symbol || a.name))];
@@ -126,7 +131,7 @@ export const MarketService = {
       : [];
 
     const yahooSymbolsMap: Record<string, string> = {}; 
-    assets.filter(a => a.type === 'BIST' || a.type === 'USA' || ['BRENT', 'BZ', 'SILVER', 'XAG/USD', 'GUMUS', 'GLD/AG', 'PLATINUM', 'PLATIN', 'PL', 'NATURALGAZ', 'PALADYUM', 'PALADIUM', 'PALLADIUM', 'PA'].some(s => (a.symbol || a.name || '').includes(s))).forEach(a => {
+    assets.filter(a => a.type === 'BIST' || a.type === 'USA' || a.type === 'INDEX' || ['BRENT', 'BZ', 'SILVER', 'XAG/USD', 'GUMUS', 'GLD/AG', 'PLATINUM', 'PLATIN', 'PL', 'NATURALGAZ', 'PALADYUM', 'PALADIUM', 'PALLADIUM', 'PA'].some(s => (a.symbol || a.name || '').includes(s))).forEach(a => {
       let fetchSymbol = a.symbol || a.name;
       if (a.type === 'BIST' && fetchSymbol && !fetchSymbol.endsWith('.IS')) {
         fetchSymbol = `${fetchSymbol}.IS`;
@@ -145,9 +150,19 @@ export const MarketService = {
     });
     
     const uniqueYahooSymbols = [...new Set(Object.values(yahooSymbolsMap))];
-    const yahooPromises = needsYahoo
-      ? uniqueYahooSymbols.map(sym => MarketService._fetchYahooFinance(sym).then(r => [sym, r]))
-      : [];
+    const yahooResults = [];
+    if (needsYahoo) {
+      // Process in batches of 3 to avoid Yahoo Finance HTTP 429 Rate Limiting
+      for (let i = 0; i < uniqueYahooSymbols.length; i += 3) {
+        const batch = uniqueYahooSymbols.slice(i, i + 3);
+        const batchPromises = batch.map(sym => MarketService._fetchYahooFinance(sym).then(r => [sym, r]));
+        const batchResults = await Promise.all(batchPromises);
+        yahooResults.push(...batchResults);
+        if (i + 3 < uniqueYahooSymbols.length) {
+          await new Promise(res => setTimeout(res, 200)); // 200ms delay between batches
+        }
+      }
+    }
 
     const tefasSymbols = [...new Set(assets.filter(a => a.type === 'TEFAS').map(a => a.symbol || a.name))];
     const tefasPromises = needsTefas
@@ -157,9 +172,8 @@ export const MarketService = {
     const goldPromise = needsGold ? MarketService._fetchGoldUSD() : Promise.resolve(null);
     const forexPromise = needsForex ? MarketService._fetchForexRates() : Promise.resolve(null);
 
-    const [cryptoResults, yahooResults, tefasResults, goldData, forexData] = await Promise.all([
+    const [cryptoResults, tefasResults, goldData, forexData] = await Promise.all([
       Promise.all(cryptoPromises),
-      Promise.all(yahooPromises),
       Promise.all(tefasPromises),
       goldPromise,
       forexPromise
@@ -179,7 +193,7 @@ export const MarketService = {
     const updated = assets.map(a => {
       const sym = a.symbol || a.name;
       
-      if (a.type === 'BIST' || a.type === 'USA' || sym === 'BRENT') {
+      if (a.type === 'BIST' || a.type === 'USA' || a.type === 'INDEX' || sym === 'BRENT') {
         const querySymbol = yahooSymbolsMap[sym];
         if (dataMap[querySymbol]) {
           const { price, changePct, previousClose } = dataMap[querySymbol];

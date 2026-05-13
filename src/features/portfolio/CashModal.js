@@ -5,7 +5,7 @@ import { SwipeableModal } from '../../shared/components/SwipeableModal';
 
 export const CashModal = ({
   visible, onClose, styles, COLORS, lang,
-  cashInput, setCashInput, setCashBalance, currency, setCurrency, usdToTryRate
+  cashInput, setCashInput, setCashBalance
 }) => {
   return (
     <SwipeableModal visible={visible} onClose={onClose} boxStyle={styles.detailPageBox} styles={styles}>
@@ -16,49 +16,10 @@ export const CashModal = ({
         </Text>
       </View>
 
-      {/* CURRENCY SWITCHER */}
-      <View style={{ 
-        flexDirection: 'row', 
-        backgroundColor: COLORS.surface, 
-        borderRadius: 100, 
-        padding: 4, 
-        marginBottom: 30,
-        marginHorizontal: 40
-      }}>
-        <TouchableOpacity 
-          style={{ 
-            flex: 1, 
-            paddingVertical: 8, 
-            alignItems: 'center', 
-            borderRadius: 100, 
-            backgroundColor: currency === '₺' ? COLORS.surfaceHigh : 'transparent' 
-          }}
-          onPress={() => setCurrency('₺')}
-        >
-          <Text style={{ color: currency === '₺' ? COLORS.textMain : COLORS.textSub, fontWeight: '700', fontSize: 13 }}>
-            🇹🇷 TRY
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={{ 
-            flex: 1, 
-            paddingVertical: 8, 
-            alignItems: 'center', 
-            borderRadius: 100, 
-            backgroundColor: currency === '$' ? COLORS.surfaceHigh : 'transparent' 
-          }}
-          onPress={() => setCurrency('$')}
-        >
-          <Text style={{ color: currency === '$' ? COLORS.textMain : COLORS.textSub, fontWeight: '700', fontSize: 13 }}>
-            🇺🇸 USD
-          </Text>
-        </TouchableOpacity>
-      </View>
-      
       {/* HERO INPUT */}
       <View style={{ alignItems: 'center', marginTop: 10, marginBottom: 40 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Text style={{ fontSize: 40, fontWeight: '800', color: COLORS.textMain, marginRight: 8 }}>{currency}</Text>
+          <Text style={{ fontSize: 40, fontWeight: '800', color: COLORS.textMain, marginRight: 8 }}>₺</Text>
           <TextInput
             style={{ 
               fontSize: 48, 
@@ -90,7 +51,7 @@ export const CashModal = ({
           onPress={() => {
             const val = parseFloat(cashInput.replace(',', '.'));
             if (!isNaN(val) && val > 0) {
-              const amountInTry = currency === '$' ? val * usdToTryRate : val;
+              const amountInTry = val;
               setCashBalance(prev => {
                 const next = prev + amountInTry;
                 AsyncStorage.setItem('@cash_balance', JSON.stringify(next));
@@ -117,7 +78,7 @@ export const CashModal = ({
           onPress={() => {
             const val = parseFloat(cashInput.replace(',', '.'));
             if (!isNaN(val) && val > 0) {
-              const amountInTry = currency === '$' ? val * usdToTryRate : val;
+              const amountInTry = val;
               setCashBalance(prev => {
                 const next = Math.max(0, prev - amountInTry);
                 AsyncStorage.setItem('@cash_balance', JSON.stringify(next));

@@ -4,7 +4,7 @@ import Svg, { Path, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { MaterialIcons } from '@expo/vector-icons';
 import { SwipeableModal } from '../../shared/components/SwipeableModal';
 import AssetIcon from '../../components/AssetIcon';
-import { calculateAssetPnLForTimeframe } from '../../../portfolioEngine';
+import { getMarketPerformance, calculateAssetPnLForTimeframe } from '../../../portfolioEngine';
 
 export const DetailModal = ({
   visible, onClose, styles: oldStyles, COLORS, currentDetailAsset, getAssetIcon, t,
@@ -52,10 +52,26 @@ export const DetailModal = ({
 
     const assetHistory = priceHistory ? priceHistory[currentDetailAsset.symbol || currentDetailAsset.name] : null;
     
-    const perf1D = calculateAssetPnLForTimeframe(currentDetailAsset, '1D', usdToTryRate, assetHistory);
-    const perf1W = calculateAssetPnLForTimeframe(currentDetailAsset, '1W', usdToTryRate, assetHistory);
-    const perf1M = calculateAssetPnLForTimeframe(currentDetailAsset, '1M', usdToTryRate, assetHistory);
-    const perf1Y = calculateAssetPnLForTimeframe(currentDetailAsset, '1Y', usdToTryRate, assetHistory);
+    // Piyasa performansı (fiyat değişimi — tüm varlıklar için)
+    const perf1D = getMarketPerformance(currentDetailAsset, '1D', assetHistory);
+    const perf1W = getMarketPerformance(currentDetailAsset, '1W', assetHistory);
+    const perf1M = getMarketPerformance(currentDetailAsset, '1M', assetHistory);
+    const perf1Y = getMarketPerformance(currentDetailAsset, '1Y', assetHistory);
+
+    // Portföy performansı (maliyet bazlı getiri — sadece portföy varlıkları için)
+    let portfolioPerf = null;
+    if (hasPosition && currentDetailAsset.quantity > 0) {
+      const pp1D = calculateAssetPnLForTimeframe(currentDetailAsset, '1D', usdToTryRate, assetHistory);
+      const pp1W = calculateAssetPnLForTimeframe(currentDetailAsset, '1W', usdToTryRate, assetHistory);
+      const pp1M = calculateAssetPnLForTimeframe(currentDetailAsset, '1M', usdToTryRate, assetHistory);
+      const pp1Y = calculateAssetPnLForTimeframe(currentDetailAsset, '1Y', usdToTryRate, assetHistory);
+      portfolioPerf = {
+        '1D': pp1D.percentage,
+        '1W': pp1W.percentage,
+        '1M': pp1M.percentage,
+        '1Y': pp1Y.percentage
+      };
+    }
 
     return {
       hasPosition,
@@ -75,13 +91,14 @@ export const DetailModal = ({
         '1W': perf1W.percentage,
         '1M': perf1M.percentage,
         '1Y': perf1Y.percentage
-      }
+      },
+      portfolioPerf
     };
   }, [currentDetailAsset, totalNetCurrentValue, usdToTryRate, priceHistory]);
 
   if (!currentDetailAsset || !stats) return null;
 
-  const isProfit = stats.netProfitTL >= 0;
+  const isProfit = stats.hasPosition ? stats.netProfitTL >= 0 : stats.dailyChange >= 0;
   const pnlColor = isProfit ? '#00E87A' : '#FF4757';
   const curSym = currency; // TL modunda $ görünmemesi için global currency kullanıyoruz
 
@@ -117,10 +134,8 @@ export const DetailModal = ({
             <View style={localStyles.priceBadge}>
                 <Text style={localStyles.priceBadgeLabel}>{t('currentPrice')}</Text>
                 <Text style={localStyles.priceBadgeValue}>
-                    {stats.isUsdBased ? '$' : '₺'}
-                    {stats.isUsdBased 
-                        ? stats.currentPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                        : Math.round(stats.currentPrice).toLocaleString('tr-TR')}
+                    {currentDetailAsset.type === 'INDEX' ? '' : (stats.isUsdBased ? '$' : '₺')}
+                    {stats.currentPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Text>
             </View>
         </View>
@@ -180,8 +195,8 @@ export const DetailModal = ({
             </Svg>
         </View>
 
-        {/* 4. PERFORMANCE MATRIX */}
-        <Text style={localStyles.sectionTitle}>{t('performanceHistory') || 'Performans Geçmişi'}</Text>
+        {/* 4. MARKET PERFORMANCE MATRIX */}
+        <Text style={localStyles.sectionTitle}>{t('performanceHistory') || 'Piyasa Performansı'}</Text>
         <View style={localStyles.matrixGrid}>
             <View style={localStyles.matrixRow}>
                 <MatrixItem label="1G" value={stats.history['1D']} />
@@ -191,31 +206,43 @@ export const DetailModal = ({
             </View>
         </View>
 
+        {/* 4b. PORTFOLIO PERFORMANCE MATRIX (ONLY FOR PORTFOLIO ASSETS) */}
+        {stats.portfolioPerf && (
+            <>
+                <Text style={localStyles.sectionTitle}>{'Portföy Performansı'}</Text>
+                <View style={[localStyles.matrixGrid, { borderColor: 'rgba(0,232,122,0.08)' }]}>
+                    <View style={localStyles.matrixRow}>
+                        <MatrixItem label="1G" value={stats.portfolioPerf['1D']} />
+                        <MatrixItem label="1H" value={stats.portfolioPerf['1W']} />
+                        <MatrixItem label="1A" value={stats.portfolioPerf['1M']} />
+                        <MatrixItem label="1Y" value={stats.portfolioPerf['1Y']} />
+                    </View>
+                </View>
+            </>
+        )}
+
         {/* 5. FINANCIAL STATS GRID (PORTFOLIO ONLY) */}
         {stats.hasPosition && (
             <>
-                <Text style={localStyles.sectionTitle}>{t('positionDetails') || 'Pozisyon Detayları'}</Text>
+                <Text style={localStyles.sectionTitle}>Pozisyon Detayı</Text>
                 <View style={localStyles.statsGrid}>
                     <View style={localStyles.statRow}>
                         <StatItem 
-                            label={t('avgCost')} 
-                            value={`${stats.isUsdBased ? '$' : '₺'}${stats.isUsdBased 
-                                ? stats.avgCost.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                                : Math.round(stats.avgCost).toLocaleString('tr-TR')}`} 
+                            label={t('avgCost') || 'Ortalama Maliyet'} 
+                            value={`${currentDetailAsset.type === 'INDEX' ? '' : (stats.isUsdBased ? '$' : '₺')}${stats.avgCost.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} 
                         />
-                        <StatItem label={t('quantity')} value={stats.quantity.toFixed(decimals)} />
+                        <StatItem label={t('quantity') || 'Adet'} value={stats.quantity.toFixed(decimals)} />
                     </View>
                     <View style={localStyles.divider} />
                     <View style={localStyles.statRow}>
-                        <StatItem label={t('allocation') || 'Portföy Payı'} value={`%${stats.allocation.toFixed(1)}`} />
                         <StatItem 
-                            label={t('dailyReturn') || 'Günlük Getiri'} 
+                            label="Toplam Değer" 
                             value={isBalanceVisible 
-                                ? `${stats.dailyReturnSign}₺${Math.abs(stats.dailyReturnTL).toLocaleString('tr-TR')}`
+                                ? `₺${Math.round(stats.totalValueTL).toLocaleString('tr-TR')}`
                                 : '***'
-                            }
-                            valueColor={stats.dailyReturnTL >= 0 ? '#00E87A' : '#FF4757'} 
+                            } 
                         />
+                        <StatItem label="Portföydeki Oranı" value={`%${stats.allocation.toFixed(1)}`} />
                     </View>
                 </View>
             </>

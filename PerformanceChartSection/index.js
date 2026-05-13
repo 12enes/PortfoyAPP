@@ -23,7 +23,13 @@ export default function PerformanceChartSection({
     } else if (activeIndex === -1) {
       setActivePoint(null);
     }
-  }, [viewMode, data, activeIndex]);
+  }, [data, activeIndex]);
+
+  // Timeframe değiştiğinde crosshair'i tamamen sıfırla
+  useEffect(() => {
+    setActiveIndex(-1);
+    setActivePoint(null);
+  }, [viewMode]);
 
   // 1. ADIM: MATEMATİK VE KOORDİNAT HARİTASI
   const chartCoordinates = useMemo(() => {

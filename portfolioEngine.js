@@ -56,6 +56,69 @@ export const calculateAssetPnL = (asset, livePrice, usdToTryRate = 1) => {
     return { cost, netValue, netProfit, changePercent, tax };
 };
 
+// 2.a. PİYASA PERFORMANSI HESAPLAYICI (SADE — DetailModal İçin)
+// Portföy mantığı (miktar, maliyet, eklenme tarihi) YOKTUR.
+// Sadece "fiyat ne kadar değişti?" sorusuna cevap verir.
+// KRİTİK: 1W/1M/1Y için hem cPrice hem refPrice aynı kaynaktan (priceHistory) gelir.
+// Bu, farklı API'lerin farklı birim döndürmesi sorununu ortadan kaldırır.
+export const getMarketPerformance = (asset, timeFilter, priceHistory = null) => {
+    // 1D: Canlı API'den gelen previousClose veya changePercent kullan
+    // (currentPrice ve previousClose aynı API'den geldiği için birim tutarlı)
+    if (timeFilter === '1D') {
+        const cPrice = (asset.currentPrice && asset.currentPrice > 0) ? asset.currentPrice : (asset.price || 0);
+        if (cPrice <= 0) return { percentage: 0 };
+        if (asset.previousClose && asset.previousClose > 0) {
+            return { percentage: ((cPrice - asset.previousClose) / asset.previousClose) * 100 };
+        }
+        return { percentage: asset.changePercent || 0 };
+    }
+
+    // 1W, 1M, 1Y: Tamamı priceHistory'den hesaplanır (aynı kaynak, aynı birim)
+    if (!priceHistory || typeof priceHistory !== 'object') {
+        return { percentage: 0 };
+    }
+
+    // priceHistory anahtarlarını sayısal timestamp olarak sırala
+    const timestamps = Object.keys(priceHistory)
+        .map(Number)
+        .filter(ts => Number.isFinite(ts) && Number(priceHistory[ts]) > 0)
+        .sort((a, b) => a - b);
+
+    if (timestamps.length < 2) return { percentage: 0 };
+
+    // Güncel fiyat = priceHistory'deki en son değer (API ile aynı birim)
+    const latestPrice = priceHistory[timestamps[timestamps.length - 1]];
+    if (!latestPrice || latestPrice <= 0) return { percentage: 0 };
+
+    const now = Date.now();
+    let cutoff = 0;
+    switch (timeFilter) {
+        case '1W': cutoff = now - 7 * 24 * 60 * 60 * 1000; break;
+        case '1M': cutoff = now - 30 * 24 * 60 * 60 * 1000; break;
+        case '3M': cutoff = now - 90 * 24 * 60 * 60 * 1000; break;
+        case '6M': cutoff = now - 180 * 24 * 60 * 60 * 1000; break;
+        case 'YTD': cutoff = new Date(new Date().getFullYear(), 0, 1).getTime(); break;
+        case '1Y': cutoff = now - 365 * 24 * 60 * 60 * 1000; break;
+        case 'ALL': default: cutoff = 0; break;
+    }
+
+    // Cutoff'a eşit veya önceki en yakın timestamp'i bul
+    const beforeCutoff = timestamps.filter(ts => ts <= cutoff);
+    let refPrice = 0;
+
+    if (beforeCutoff.length > 0) {
+        refPrice = priceHistory[beforeCutoff[beforeCutoff.length - 1]];
+    } else {
+        // Cutoff'tan önce veri yok: Eldeki en eski fiyatı kullan
+        refPrice = priceHistory[timestamps[0]];
+    }
+
+    if (!refPrice || refPrice <= 0) return { percentage: 0 };
+
+    const percentage = ((latestPrice - refPrice) / refPrice) * 100;
+    return { percentage };
+};
+
 // 2.b. ZAMAN DİLİMLİ VARLIK HESAPLAYICI (PRO)
 export const calculateAssetPnLForTimeframe = (asset, timeFilter, usdToTryRate = 1, priceHistory = null, chartHistory = []) => {
     const cPrice = (asset.currentPrice && asset.currentPrice > 0) ? asset.currentPrice : (asset.price || 0);

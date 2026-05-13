@@ -34,6 +34,7 @@ export const AddAssetModal = ({
   // Varlık tiplerini orijinal listeye göre güncelliyoruz
   const displayTabs = [
     { id: 'BIST', label: 'BIST' },
+    { id: 'INDEX', label: 'ENDEKS' },
     { id: 'USA', label: 'ABD' },
     { id: 'CRYPTO', label: 'KRİPTO' },
     { id: 'GOLD', label: 'EMTİA' },
@@ -72,8 +73,8 @@ export const AddAssetModal = ({
             { 
               width: 80, // Sabit genişlik veya dinamik hesaplama
               left: tabAnim.interpolate({
-                inputRange: [0, 1, 2, 3, 4],
-                outputRange: [5, 95, 185, 275, 365] // Pozisyonlar
+                inputRange: [0, 1, 2, 3, 4, 5],
+                outputRange: [5, 95, 185, 275, 365, 455] // Pozisyonlar
               })
             }
           ]} 

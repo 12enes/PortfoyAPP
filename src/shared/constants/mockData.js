@@ -1,5 +1,5 @@
-export const ASSET_TYPES = ['BIST', 'TEFAS', 'GOLD', 'CRYPTO', 'USA'];
-export const CATEGORY_ORDER = ['BIST', 'TEFAS', 'GOLD', 'CRYPTO', 'USA'];
+export const ASSET_TYPES = ['BIST', 'INDEX', 'TEFAS', 'GOLD', 'CRYPTO', 'USA'];
+export const CATEGORY_ORDER = ['BIST', 'INDEX', 'TEFAS', 'GOLD', 'CRYPTO', 'USA'];
 
 export const MOCK_ASSETS = {
   'BIST': [
@@ -61,5 +61,23 @@ export const MOCK_ASSETS = {
     { symbol: 'GAF', name: 'Garanti Portföy Hisse Fonu', price: 0.78 },
     { symbol: 'OKD', name: 'Osmanlı Portföy Hisse Fonu', price: 1.65 },
     { symbol: 'HVS', name: 'HSBC Portföy Hisse Fonu', price: 1.32 }
+  ],
+  'INDEX': [
+    { symbol: 'XU100.IS', name: 'BIST 100', price: 10500.00 },
+    { symbol: 'XU030.IS', name: 'BIST 30', price: 11200.00 },
+    { symbol: 'XBANK.IS', name: 'BIST Bankacılık', price: 12500.00 },
+    { symbol: 'XUTEK.IS', name: 'BIST Teknoloji', price: 14000.00 },
+    { symbol: 'XUSIN.IS', name: 'BIST Sınai', price: 16000.00 },
+    { symbol: 'XUHIZ.IS', name: 'BIST Hizmetler', price: 9500.00 },
+    { symbol: 'XUTUM.IS', name: 'BIST Tüm', price: 12000.00 },
+    { symbol: '^NDX', name: 'NASDAQ 100', price: 18500.00 },
+    { symbol: '^IXIC', name: 'NASDAQ Composite', price: 16500.00 },
+    { symbol: '^GSPC', name: 'S&P 500', price: 5200.00 },
+    { symbol: '^DJI', name: 'Dow Jones Industrial', price: 39500.00 },
+    { symbol: '^RUT', name: 'Russell 2000', price: 2100.00 },
+    { symbol: '^VIX', name: 'CBOE Volatility (VIX)', price: 14.50 },
+    { symbol: '^GDAXI', name: 'DAX (Almanya)', price: 18200.00 },
+    { symbol: '^FTSE', name: 'FTSE 100 (İngiltere)', price: 8100.00 },
+    { symbol: '^N225', name: 'Nikkei 225 (Japonya)', price: 38500.00 }
   ]
 };

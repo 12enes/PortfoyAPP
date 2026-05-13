@@ -167,22 +167,9 @@ export const usePortfolioData = (deps) => {
     setChartHistory(finalHistory);
     AsyncStorage.setItem('@chart_history', JSON.stringify(finalHistory));
 
-    let updatedPriceHistory = { ...priceHistory };
-    const storedPriceHistory = await AsyncStorage.getItem('@price_history');
-    if (storedPriceHistory) {
-      updatedPriceHistory = JSON.parse(storedPriceHistory);
-    }
-    Object.entries(currentAssetPrices).forEach(([symbol, price]) => {
-      const numericPrice = Number(price);
-      if (!Number.isFinite(numericPrice) || numericPrice <= 0) return;
-      updatedPriceHistory[symbol] = {
-        ...(updatedPriceHistory[symbol] || {}),
-        [now]: numericPrice
-      };
-    });
-
-    setPriceHistory(updatedPriceHistory);
-    AsyncStorage.setItem('@price_history', JSON.stringify(updatedPriceHistory));
+    // NOT: priceHistory artık burada güncellenmez.
+    // priceHistory yalnızca fetchHistoricalPrices (Yahoo/Binance API) tarafından doldurulur.
+    // Bu, para birimi kirlenmesini (TL vs USD karışması) önler.
   };
 
   const onRefreshMarket = async () => {
@@ -246,14 +233,12 @@ export const usePortfolioData = (deps) => {
       const sTheme = await AsyncStorage.getItem('@theme'); 
       const sLists = await AsyncStorage.getItem('@custom_lists');
 
-      // ONE-TIME MİGRASYON: Eski sahte chartHistory ve priceHistory verilerini temizle
+      // ONE-TIME MİGRASYON v2: Eski sahte chartHistory ve priceHistory verilerini temizle
       const migrationDone = await AsyncStorage.getItem('@migration_v2_clean_mock');
       if (!migrationDone) {
-        // Eski mock verileri temizle — yeni gerçek veriler sıfırdan birikecek
         await AsyncStorage.removeItem('@chart_history');
         await AsyncStorage.removeItem('@price_history');
         await AsyncStorage.setItem('@migration_v2_clean_mock', 'true');
-        // Temizlenmiş veriyi kullanma, boş başla
         setChartHistory([]);
         setPriceHistory({});
       } else {
@@ -269,13 +254,20 @@ export const usePortfolioData = (deps) => {
           AsyncStorage.setItem('@chart_history', JSON.stringify(parsedChart));
         }
 
+        // priceHistory: Sadece fetchHistoricalPrices'tan gelen temiz veriyi yükle
         if (sPriceHist) {
           setPriceHistory(JSON.parse(sPriceHist));
-        } else if (parsedChart && parsedChart.length > 0) {
-          const derivedPriceHistory = buildPriceHistoryFromChart(parsedChart);
-          setPriceHistory(derivedPriceHistory);
-          AsyncStorage.setItem('@price_history', JSON.stringify(derivedPriceHistory));
         }
+      }
+
+      // ONE-TIME MİGRASYON v3: Eski snapshot kaynaklı kirli priceHistory'yi temizle
+      // Bu veriler TL ve USD karışık olduğu için performans yüzdelerini bozuyordu.
+      // Temizlendikten sonra fetchAllHistory saf API verileriyle dolduracak.
+      const migrationV3 = await AsyncStorage.getItem('@migration_v3_clean_price_history');
+      if (!migrationV3) {
+        await AsyncStorage.removeItem('@price_history');
+        await AsyncStorage.setItem('@migration_v3_clean_price_history', 'true');
+        setPriceHistory({});
       }
       
       if (sPort) setPortfolio(JSON.parse(sPort).map(item => ({...item, type: migrateType(item.type)})));
@@ -292,9 +284,11 @@ export const usePortfolioData = (deps) => {
         if (rates?.TRY) setUsdToTryRate(rates.TRY);
       } catch (e) { }
       
-      if (sPort) {
-        const parsedPort = JSON.parse(sPort).map(item => ({...item, type: migrateType(item.type)}));
-        refreshPortfolioPrices(parsedPort);
+      if (sPort || sWatch) {
+        const parsedPort = sPort ? JSON.parse(sPort).map(item => ({...item, type: migrateType(item.type)})) : [];
+        const parsedWatch = sWatch ? JSON.parse(sWatch).map(item => ({ ...item, type: migrateType(item.type) })) : [];
+
+        if (parsedPort.length > 0) refreshPortfolioPrices(parsedPort);
         
         // BUGÜNÜN VERİSİ YOKSA GÜN İÇİ GEÇMİŞİ ÇEK
         const parsedChart = sChart ? JSON.parse(sChart) : [];
@@ -303,6 +297,42 @@ export const usePortfolioData = (deps) => {
         if (!hasTodaySnap && parsedPort.length > 0) {
           fetchIntradaySnapshots(parsedPort, parsedChart);
         }
+
+        // HER VARLIK İÇİN 1 YILLIK GEÇMİŞ VERİSİ ÇEK
+        const fetchAllHistory = async () => {
+          let updatedHistory = { ...priceHistory };
+          let changed = false;
+          
+          // Portfolio ve watchlist varlıklarını birleştir
+          const allAssets = [...(parsedPort || []), ...(parsedWatch || [])];
+          // Mükerrer sembolleri temizle
+          const uniqueAssets = allAssets.filter((asset, index, self) => 
+            index === self.findIndex(a => (a.symbol || a.name) === (asset.symbol || asset.name))
+          );
+
+          await Promise.all(uniqueAssets.map(async (asset) => {
+            const sym = asset.symbol || asset.name;
+            const historyData = await MarketService.fetchHistoricalPrices(sym, asset.type, 365);
+            if (historyData && Object.keys(historyData).length > 0) {
+              const isUsdBased = asset.type === 'USA' || asset.type === 'CRYPTO';
+              
+              if (isUsdBased) {
+                // KRİTİK: USD varlıklar için ESKİ (muhtemelen TL olan) verileri sil, 
+                // SADECE yeni gelen temiz USD verisini kullan.
+                updatedHistory[sym] = historyData;
+              } else {
+                updatedHistory[sym] = { ...(updatedHistory[sym] || {}), ...historyData };
+              }
+              changed = true;
+            }
+          }));
+
+          if (changed) {
+            setPriceHistory(updatedHistory);
+            saveData('@price_history', updatedHistory);
+          }
+        };
+        fetchAllHistory();
       }
     } catch (e) { 
       Alert.alert(t('alertWarning'), "Error loading data"); 
@@ -322,8 +352,8 @@ export const usePortfolioData = (deps) => {
         let type = asset.type;
         let symbol = asset.symbol || asset.name;
 
-        if (type === 'BIST') {
-          url = `https://query2.finance.yahoo.com/v8/finance/chart/${symbol.endsWith('.IS') ? symbol : symbol + '.IS'}?interval=5m&range=1d`;
+        if (type === 'BIST' || type === 'INDEX') {
+          url = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent((type === 'BIST' && !symbol.endsWith('.IS')) ? symbol + '.IS' : symbol)}?interval=5m&range=1d`;
         } else if (type === 'USA') {
           url = `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?interval=5m&range=1d`;
         } else if (type === 'CRYPTO') {

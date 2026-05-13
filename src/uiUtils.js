@@ -5,6 +5,7 @@ export const getAssetIcon = (type) => {
     case 'TEFAS': return 'pie-chart'; 
     case 'CRYPTO': return 'currency-bitcoin'; 
     case 'GOLD': return 'attach-money'; 
+    case 'INDEX': return 'insights';
     default: return 'widgets'; 
   } 
 };

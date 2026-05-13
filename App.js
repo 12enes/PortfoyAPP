@@ -56,7 +56,15 @@ import { DistributionModal } from './src/features/portfolio/DistributionModal';
 
 
 const migrateType = (type) => {
-  switch(type) { case 'Hisse': return 'BIST'; case 'Fon': return 'TEFAS'; case 'Altın/Döviz': return 'GOLD'; case 'Kripto': return 'CRYPTO'; case 'ABD Hisse': return 'USA'; default: return type || 'BIST'; }
+  switch(type) { 
+    case 'Hisse': return 'BIST'; 
+    case 'Fon': return 'TEFAS'; 
+    case 'Altın/Döviz': return 'GOLD'; 
+    case 'Kripto': return 'CRYPTO'; 
+    case 'ABD Hisse': return 'USA'; 
+    case 'Endeks': case 'INDEX': return 'INDEX';
+    default: return type || 'BIST'; 
+  }
 };
 
 const getCurrencySymbol = (type, symbolOrName) => {
@@ -72,6 +80,9 @@ const getCurrencySymbol = (type, symbolOrName) => {
     case 'BIST': case 'TEFAS': return '₺'; 
     case 'CRYPTO': return '$'; 
     case 'USA': return '$'; 
+    case 'INDEX':
+      if (symbolOrName && symbolOrName.startsWith('^')) return '$';
+      return '₺';
     case 'GOLD': 
       if (symbolOrName && symbolOrName.includes('USD')) return '$';
       return '₺';
@@ -116,10 +127,14 @@ const MarketService = {
     }
   },
 
-  // Yahoo Finance: BIST (.IS), ABD (AAPL vs), Emtia
   _fetchYahooFinance: async (symbol) => {
     try {
-      const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`);
+      const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'Accept': 'application/json'
+        }
+      });
       if (!res.ok) throw new Error(`Yahoo HTTP ${res.status}`);
       const data = await res.json();
       if (!data.chart || !data.chart.result || !data.chart.result[0]) return null;
@@ -201,15 +216,88 @@ const MarketService = {
     }
   },
 
-  fetchHistoricalPrices: async (symbol, type, daysBack = 30) => {
-    return {};
+  fetchHistoricalPrices: async (symbol, type, daysBack = 365) => {
+    try {
+      if (type === 'TEFAS') {
+        const res = await fetch('https://www.tefas.gov.tr/api/funds/fonFiyatBilgiGetir', {
+          method: 'POST',
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify({fonKodu: symbol, dil: 'TR', periyod: 12})
+        });
+        if (!res.ok) return {};
+        const data = await res.json();
+        const history = {};
+        if (data && data.resultList) {
+          data.resultList.forEach(item => {
+            if (item.fiyat > 0 && item.tarih) {
+              // Gece yarısı olacak şekilde milisaniyeye çeviriyoruz
+              const ts = new Date(item.tarih).getTime();
+              history[ts] = item.fiyat;
+            }
+          });
+        }
+        return history;
+      }
+
+      let url = '';
+      if (type === 'BIST' || type === 'USA' || type === 'INDEX') {
+        const fetchSymbol = (type === 'BIST' && !symbol.endsWith('.IS')) ? `${symbol}.IS` : symbol;
+        url = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(fetchSymbol)}?interval=1d&range=1y`;
+      } else if (type === 'CRYPTO') {
+        url = `https://api.binance.com/api/v3/klines?symbol=${symbol.toUpperCase()}USDT&interval=1d&limit=365`;
+      } else if (type === 'GOLD' || type === 'FOREX') {
+        let yahooSymbol = symbol;
+        if (symbol.includes('ALTIN') || symbol.includes('XAU')) yahooSymbol = 'GC=F';
+        else if (symbol.includes('GUMUS') || symbol.includes('XAG')) yahooSymbol = 'SI=F';
+        else if (symbol.includes('BRENT')) yahooSymbol = 'BZ=F';
+        else if (symbol.includes('PLATIN')) yahooSymbol = 'PL=F';
+        else return {};
+        url = `https://query2.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?interval=1d&range=1y`;
+      } else {
+        return {};
+      }
+
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' }
+      });
+      if (!res.ok) return {};
+      const data = await res.json();
+      const history = {};
+
+      if (type === 'CRYPTO') {
+        (data || []).forEach(k => {
+          const ts = k[0];
+          const price = parseFloat(k[4]);
+          if (price > 0) history[ts] = price;
+        });
+      } else {
+        const result = data.chart?.result?.[0];
+        if (!result || !result.timestamp) return {};
+        const tsArr = result.timestamp;
+        const priceArr = result.indicators.quote[0].close;
+        tsArr.forEach((ts, idx) => {
+          const fullTs = ts * 1000;
+          const p = priceArr[idx];
+          if (p !== null && p !== undefined && p > 0) {
+            history[fullTs] = p;
+          }
+        });
+      }
+      return history;
+    } catch (e) {
+      return {};
+    }
   },
 
   fetchMultiple: async (assets) => {
     const needsCrypto = assets.some(a => a.type === 'CRYPTO');
     const needsGold = assets.some(a => a.type === 'GOLD' || ['XAU/USD', 'GRAM/TL'].includes(a.symbol || a.name));
     const needsForex = assets.some(a => a.type === 'GOLD' || ['DOLAR/TL', 'EURO/TL', 'GBP', 'STERLIN', 'YEN', 'FRANK', 'AUD', 'GRAM/TL'].some(s => (a.symbol || a.name || '').includes(s)));
-    const needsYahoo = assets.some(a => a.type === 'BIST' || a.type === 'USA' || ['BRENT', 'BZ', 'SILVER', 'XAG/USD', 'GUMUS', 'GLD/AG', 'PLATINUM', 'PLATIN', 'PL', 'NATURALGAZ', 'PALADYUM', 'PALADIUM', 'PALLADIUM', 'PA'].some(s => (a.symbol || a.name || '').includes(s)));
+    const needsYahoo = assets.some(a => a.type === 'BIST' || a.type === 'USA' || a.type === 'INDEX' || ['BRENT', 'BZ', 'SILVER', 'XAG/USD', 'GUMUS', 'GLD/AG', 'PLATINUM', 'PLATIN', 'PL', 'NATURALGAZ', 'PALADYUM', 'PALADIUM', 'PALLADIUM', 'PA'].some(s => (a.symbol || a.name || '').includes(s)));
     const needsTefas = assets.some(a => a.type === 'TEFAS');
     
     // 1. Kripto İstekleri
@@ -220,7 +308,7 @@ const MarketService = {
 
     // 2. Yahoo Finance İstekleri (BIST ve ABD)
     const yahooSymbolsMap = {}; // Ekranda görünen ad ile Yahoo sorgu adını eşleştir
-    assets.filter(a => a.type === 'BIST' || a.type === 'USA' || ['BRENT', 'BZ', 'SILVER', 'XAG/USD', 'GUMUS', 'GLD/AG', 'PLATINUM', 'PLATIN', 'PL', 'NATURALGAZ', 'PALADYUM', 'PALADIUM', 'PALLADIUM', 'PA'].some(s => (a.symbol || a.name || '').includes(s))).forEach(a => {
+    assets.filter(a => a.type === 'BIST' || a.type === 'USA' || a.type === 'INDEX' || ['BRENT', 'BZ', 'SILVER', 'XAG/USD', 'GUMUS', 'GLD/AG', 'PLATINUM', 'PLATIN', 'PL', 'NATURALGAZ', 'PALADYUM', 'PALADIUM', 'PALLADIUM', 'PA'].some(s => (a.symbol || a.name || '').includes(s))).forEach(a => {
       let fetchSymbol = a.symbol || a.name;
       if (a.type === 'BIST' && fetchSymbol && !fetchSymbol.endsWith('.IS')) {
         fetchSymbol = `${fetchSymbol}.IS`;
@@ -239,9 +327,18 @@ const MarketService = {
     });
     
     const uniqueYahooSymbols = [...new Set(Object.values(yahooSymbolsMap))];
-    const yahooPromises = needsYahoo
-      ? uniqueYahooSymbols.map(sym => MarketService._fetchYahooFinance(sym).then(r => [sym, r]))
-      : [];
+    const yahooResults = [];
+    if (needsYahoo) {
+      for (let i = 0; i < uniqueYahooSymbols.length; i += 3) {
+        const batch = uniqueYahooSymbols.slice(i, i + 3);
+        const batchPromises = batch.map(sym => MarketService._fetchYahooFinance(sym).then(r => [sym, r]));
+        const batchResults = await Promise.all(batchPromises);
+        yahooResults.push(...batchResults);
+        if (i + 3 < uniqueYahooSymbols.length) {
+          await new Promise(res => setTimeout(res, 200));
+        }
+      }
+    }
 
     // 3. TEFAS İstekleri
     const tefasSymbols = [...new Set(assets.filter(a => a.type === 'TEFAS').map(a => a.symbol || a.name))];
@@ -253,9 +350,8 @@ const MarketService = {
     const goldPromise = needsGold ? MarketService._fetchGoldUSD() : Promise.resolve(null);
     const forexPromise = needsForex ? MarketService._fetchForexRates() : Promise.resolve(null);
 
-    const [cryptoResults, yahooResults, tefasResults, goldData, forexData] = await Promise.all([
+    const [cryptoResults, tefasResults, goldData, forexData] = await Promise.all([
       Promise.all(cryptoPromises),
-      Promise.all(yahooPromises),
       Promise.all(tefasPromises),
       goldPromise,
       forexPromise
@@ -275,8 +371,8 @@ const MarketService = {
     const updated = assets.map(a => {
       const sym = a.symbol || a.name;
       
-      // BIST, ABD Hisse ve BRENT Eşleştirmesi
-      if (a.type === 'BIST' || a.type === 'USA' || sym === 'BRENT') {
+      // BIST, ABD Hisse, INDEX ve BRENT Eşleştirmesi
+      if (a.type === 'BIST' || a.type === 'USA' || a.type === 'INDEX' || sym === 'BRENT') {
         const querySymbol = yahooSymbolsMap[sym];
         if (dataMap[querySymbol]) {
           const { price, changePct, previousClose } = dataMap[querySymbol];
@@ -554,7 +650,7 @@ function AppRoot() {
     setIsAddMoreMode(false);
     // Piyasa ekranındayken ve belirli bir kategori seçiliyse, arama modalını o kategoriye kilitle
     if (activeTab === 'MARKET' && marketTabMode === 'GRID' && selectedCategory !== 'ALL') {
-      const catTypeMap = { BIST: 'BIST', USA: 'USA', CRYPTO: 'CRYPTO', GOLD: 'GOLD', TEFAS: 'TEFAS' };
+      const catTypeMap = { BIST: 'BIST', USA: 'USA', CRYPTO: 'CRYPTO', GOLD: 'GOLD', TEFAS: 'TEFAS', INDEX: 'INDEX' };
       const mappedType = catTypeMap[selectedCategory] || 'BIST';
       handleCategoryChange(mappedType);
     } else {
@@ -827,6 +923,7 @@ function AppRoot() {
 
     const assetName = (item?.name || '').toUpperCase();
     const assetSymbol = (item?.symbol || '').toUpperCase();
+    const isIndex = item.type === 'INDEX';
     const isUsdBased = 
       item.type === 'USA' || 
       item.type === 'CRYPTO' ||
@@ -846,10 +943,8 @@ function AppRoot() {
         </View>
         <Text style={styles.gridSymbol} numberOfLines={1}>{item.symbol || item.name}</Text>
         <Text style={styles.gridPrice}>
-          {isUsdBased ? '$' : '₺'}
-          {isUsdBased 
-            ? cPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-            : Math.round(cPrice).toLocaleString('tr-TR')}
+          {isIndex ? '' : (isUsdBased ? '$' : '₺')}
+          {cPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </Text>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <MaterialIcons name={arrowIcon} size={12} color={changeColor} style={{ marginRight: 2 }} />
@@ -1164,7 +1259,9 @@ function AppRoot() {
         isBalanceVisible={isBalanceVisible}
         priceHistory={priceHistory}
         usdToTryRate={usdToTryRate}
+        totalNetCurrentValue={totalNetCurrentValue}
       />
+
 
       <ListOptionsModal 
         visible={listOptionsVisible}
@@ -1229,9 +1326,6 @@ function AppRoot() {
         styles={styles}
         COLORS={COLORS}
         lang={lang}
-        currency={currency}
-        setCurrency={setCurrency}
-        usdToTryRate={usdToTryRate}
         cashInput={cashInput}
         setCashInput={setCashInput}
         setCashBalance={setCashBalance}

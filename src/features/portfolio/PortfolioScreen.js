@@ -273,19 +273,12 @@ export const PortfolioScreen = ({
                 {lang === 'tr' ? 'NAKİT VARLIK' : 'CASH BALANCE'}
               </Text>
             </View>
-            <View style={{ alignItems: 'flex-end', gap: 8 }}>
+            <View style={{ alignItems: 'flex-end' }}>
               {/* TRY Kasa */}
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <AssetIcon asset={{ symbol: 'TRY', type: 'FOREX' }} size={18} />
                 <Text style={{ color: COLORS.textMain, fontSize: 14, fontWeight: '700', marginLeft: 8 }}>
                   {isBalanceVisible ? cashBalance.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '***'}
-                </Text>
-              </View>
-              {/* USD Kasa */}
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <AssetIcon asset={{ symbol: 'USD', type: 'FOREX' }} size={18} />
-                <Text style={{ color: COLORS.textMain, fontSize: 14, fontWeight: '700', marginLeft: 8 }}>
-                  {isBalanceVisible ? (cashBalance / usdToTryRate).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '***'}
                 </Text>
               </View>
             </View>

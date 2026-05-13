@@ -1,30 +1,57 @@
-import React, { useRef } from 'react';
+import React, { useRef, useEffect } from 'react';
 import { View, StyleSheet, PanResponder } from 'react-native';
 
 export default function GestureOverlay({ width, data, onPointSelect }) {
   
-  // ŞERİT METRENİN UCU: Parmağın ekrana ilk değdiği yeri hafızada tutarız
+  // KRİTİK: data ve width'i ref'te tut ki PanResponder her zaman güncel veriye erişsin.
+  // PanResponder useRef ile 1 kez oluşturulduğu için closure'daki değişkenler eskir.
+  // Bu ref'ler sayesinde timeframe değiştiğinde lazer doğru veriyi takip eder.
+  const dataRef = useRef(data);
+  const widthRef = useRef(width);
+  const onPointSelectRef = useRef(onPointSelect);
+  
+  useEffect(() => { dataRef.current = data; }, [data]);
+  useEffect(() => { widthRef.current = width; }, [width]);
+  useEffect(() => { onPointSelectRef.current = onPointSelect; }, [onPointSelect]);
+
   const touchStartX = useRef(0);
 
-  // YENİ SENSÖR MANTIĞI
+  const handleTouch = (x) => {
+    const currentData = dataRef.current;
+    const currentWidth = widthRef.current;
+    if (!currentData || currentData.length === 0 || currentWidth <= 0) return;
+    
+    const step = currentData.length > 1 ? currentWidth / (currentData.length - 1) : currentWidth;
+    let index = Math.round(x / step);
+    
+    if (isNaN(index)) index = 0;
+    const safeIndex = Math.max(0, Math.min(index, currentData.length - 1));
+    
+    if (onPointSelectRef.current) {
+      onPointSelectRef.current(currentData[safeIndex], safeIndex, x);
+    }
+  };
+
+  const handleEnd = () => {
+    if (onPointSelectRef.current) {
+      onPointSelectRef.current(null, -1);
+    }
+  };
+
+  const touchStartXRef = useRef(0);
+
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
       
-      // 1. Parmağın ekrana İLK dokunduğu an (Sadece 1 kez çalışır)
       onPanResponderGrant: (evt) => {
-        // Şerit metreyi parmağın ilk dokunduğu yere çiviliyoruz
-        touchStartX.current = evt.nativeEvent.locationX;
-        handleTouch(touchStartX.current);
+        touchStartXRef.current = evt.nativeEvent.locationX;
+        handleTouch(touchStartXRef.current);
       },
       
-      // 2. Parmağın ekranda sürüklendiği anlar (Sürekli çalışır)
       onPanResponderMove: (evt, gestureState) => {
-        // MÜKEMMEL STABİLİTE: İlk dokunulan noktaya, parmağın ne kadar kaydırıldığını (dx) ekliyoruz.
-        // dx (delta X) doğrudan telefonun ekranından gelir, sensör camından değil.
-        // Bu yüzden parmak grafiğin dışına, ekranın en altına gitse bile ASLA sapma yapmaz.
-        const currentX = touchStartX.current + gestureState.dx;
+        const currentX = touchStartXRef.current + gestureState.dx;
         handleTouch(currentX);
       },
       
@@ -32,27 +59,6 @@ export default function GestureOverlay({ width, data, onPointSelect }) {
       onPanResponderTerminate: () => handleEnd(),
     })
   ).current;
-
-  const handleTouch = (x) => {
-    if (!data || data.length === 0 || width <= 0) return;
-    
-    const step = data.length > 1 ? width / (data.length - 1) : width;
-    let index = Math.round(x / step);
-    
-    if (isNaN(index)) index = 0;
-    const safeIndex = Math.max(0, Math.min(index, data.length - 1));
-    
-    if (onPointSelect) {
-      // Hem tahmini gün index'ini hem de kusursuz parmak pikselini (x) beyne gönderiyoruz
-      onPointSelect(data[safeIndex], safeIndex, x);
-    }
-  };
-
-  const handleEnd = () => {
-    if (onPointSelect) {
-      onPointSelect(null, -1);
-    }
-  };
 
   return <View style={StyleSheet.absoluteFill} {...panResponder.panHandlers} />;
 }

@@ -6,6 +6,7 @@ import AssetIcon from '../../components/AssetIcon';
 // Kategori tanımları ve sıralama önceliği
 const CATEGORIES = [
   { key: 'ALL', label: 'Tümü', types: [] as string[] },
+  { key: 'INDEX', label: 'Endeks', types: ['INDEX'] },
   { key: 'BIST', label: 'BIST', types: ['BIST'] },
   { key: 'GOLD', label: 'Emtia', types: ['GOLD', 'FOREX'] },
   { key: 'USA', label: 'ABD', types: ['USA'] },
@@ -15,7 +16,7 @@ const CATEGORIES = [
 
 // Sıralama haritası: Varlık tipine göre öncelik (düşük = önce)
 const TYPE_ORDER: Record<string, number> = {
-  BIST: 0, GOLD: 1, FOREX: 1, USA: 2, CRYPTO: 3, TEFAS: 4
+  BIST: 0, INDEX: 1, GOLD: 2, FOREX: 2, USA: 3, CRYPTO: 4, TEFAS: 5
 };
 
 export const MarketScreen = ({
