@@ -376,7 +376,19 @@ const MarketService = {
         const querySymbol = yahooSymbolsMap[sym];
         if (dataMap[querySymbol]) {
           const { price, changePct, previousClose } = dataMap[querySymbol];
-          return { ...a, currentPrice: price, changePercent: changePct, previousClose: previousClose || a.previousClose };
+          
+          let normalizedAsset = { ...a, currentPrice: price, changePercent: changePct, previousClose: previousClose || a.previousClose };
+
+          // DATA NORMALIZATION FIX FOR INDEX
+          if (a.type === 'INDEX') {
+            const originalMock = MOCK_ASSETS.INDEX.find(m => m.symbol === sym || m.name === sym);
+            if (originalMock) {
+              normalizedAsset.name = originalMock.name;
+              normalizedAsset.symbol = originalMock.symbol;
+            }
+          }
+
+          return normalizedAsset;
         }
       }
 
@@ -924,6 +936,17 @@ function AppRoot() {
     const assetName = (item?.name || '').toUpperCase();
     const assetSymbol = (item?.symbol || '').toUpperCase();
     const isIndex = item.type === 'INDEX';
+
+    const getDisplayName = (target) => {
+      const isMarketIndex = 
+        target.type === 'INDEX' || 
+        target.category === 'indices' || 
+        target.assetClass === 'INDEX';
+      
+      const dName = isMarketIndex ? (target.name || target.symbol) : (target.symbol || target.name);
+      return dName;
+    };
+
     const isUsdBased = 
       item.type === 'USA' || 
       item.type === 'CRYPTO' ||
@@ -941,7 +964,15 @@ function AppRoot() {
         <View style={{ marginBottom: 12 }}>
           <AssetIcon asset={item} size={32} />
         </View>
-        <Text style={styles.gridSymbol} numberOfLines={1}>{item.symbol || item.name}</Text>
+        <Text 
+          style={[
+            styles.gridSymbol, 
+            isIndex && { fontSize: 12, letterSpacing: 0.8, textTransform: 'uppercase' }
+          ]} 
+          numberOfLines={1}
+        >
+          {getDisplayName(item)}
+        </Text>
         <Text style={styles.gridPrice}>
           {isIndex ? '' : (isUsdBased ? '$' : '₺')}
           {cPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}

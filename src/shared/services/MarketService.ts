@@ -197,6 +197,7 @@ export const MarketService = {
         const querySymbol = yahooSymbolsMap[sym];
         if (dataMap[querySymbol]) {
           const { price, changePct, previousClose } = dataMap[querySymbol];
+
           return { ...a, currentPrice: price, changePercent: changePct, previousClose: previousClose || a.previousClose };
         }
       }

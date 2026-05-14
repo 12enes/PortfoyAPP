@@ -81,7 +81,17 @@ export const usePortfolio = (deps) => {
         const totalQty = existing.quantity + finalQty;
         updatedData[existingIndex] = { ...existing, price: (oldTotalCost + newTotalCost) / totalQty, quantity: totalQty, currentPrice: liveMarketPrice, type: assetType, note: note || existing.note, addedDate: existing.addedDate || Date.now() };
       } else {
-        updatedData.push({ id: Math.random().toString(), name: finalSymbol, type: assetType, price: finalPrice, quantity: finalQty, currentPrice: liveMarketPrice, addedDate: Date.now(), note });
+        updatedData.push({ 
+          id: Math.random().toString(), 
+          symbol: selectedSearchAsset.symbol,
+          name: selectedSearchAsset.name || selectedSearchAsset.symbol, 
+          type: assetType, 
+          price: finalPrice, 
+          quantity: finalQty, 
+          currentPrice: liveMarketPrice, 
+          addedDate: Date.now(), 
+          note 
+        });
       }
       
       setPortfolio(updatedData); 
@@ -91,9 +101,17 @@ export const usePortfolio = (deps) => {
       // MARKET / WATCHLIST LOGIC
       
       // Her durumda ana Watchlist'e ekle (Eğer yoksa) - Bu fiyat zenginleştirmesi için gereklidir
-      const existingIndex = watchlist.findIndex(a => a.name === finalSymbol);
+      const existingIndex = watchlist.findIndex(a => (a.symbol || a.name) === finalSymbol);
       if (existingIndex === -1) {
-        const up = [...watchlist, { id: Math.random().toString(), name: finalSymbol, type: assetType, price: finalPrice, currentPrice: liveMarketPrice, changePercent: 0 }];
+        const up = [...watchlist, { 
+          id: Math.random().toString(), 
+          symbol: selectedSearchAsset.symbol,
+          name: selectedSearchAsset.name || selectedSearchAsset.symbol, 
+          type: assetType, 
+          price: finalPrice, 
+          currentPrice: liveMarketPrice, 
+          changePercent: 0 
+        }];
         setWatchlist(up);
         saveData('@watchlist', up);
         // Varlık eklenince hemen fiyatı güncelle
