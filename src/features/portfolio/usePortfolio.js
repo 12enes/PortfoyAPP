@@ -6,11 +6,11 @@ export const usePortfolio = (deps) => {
   const {
     activeTab, primaryInput, buyPrice, selectedSearchAsset, portfolio, watchlist,
     customLists, selectedListId, assetType, note, inputMode,
-    selectedAssetId, currentPriceInput, sellQuantityInput, usdToTryRate,
+    selectedAssetId, sellQuantityInput, usdToTryRate,
     setPortfolio, setWatchlist, setCashBalance, setPriceHistory,
     saveData, saveLists, logTransaction, resetAddModal,
     setModalVisible, setSellModalVisible, setDetailModalVisible,
-    setPrimaryInput, setBuyPrice, setNote, setSellQuantityInput, setCurrentPriceInput,
+    setPrimaryInput, setBuyPrice, setNote, setSellQuantityInput,
     t, MarketService, onRefreshMarket
   } = deps;
 
@@ -54,12 +54,14 @@ export const usePortfolio = (deps) => {
           if (goldResult?.price) {
             if (finalSymbol === 'XAU/USD') { liveMarketPrice = goldResult.price; }
             else {
-              const rates = await MarketService._fetchForexRates();
+              const forexData = await MarketService._fetchForexRates();
+              const rates = forexData?.rates;
               if (rates?.TRY) liveMarketPrice = parseFloat(((goldResult.price * rates.TRY) / 31.1035).toFixed(2));
             }
           }
         } else if (finalSymbol === 'DOLAR/TL' || finalSymbol === 'EURO/TL') {
-          const rates = await MarketService._fetchForexRates();
+          const forexData = await MarketService._fetchForexRates();
+          const rates = forexData?.rates;
           if (rates) {
             if (finalSymbol === 'DOLAR/TL' && rates.TRY) liveMarketPrice = rates.TRY;
             else if (finalSymbol === 'EURO/TL' && rates.TRY && rates.EUR) liveMarketPrice = parseFloat((rates.TRY / rates.EUR).toFixed(4));
@@ -72,7 +74,7 @@ export const usePortfolio = (deps) => {
     } catch (e) { }
 
     if (activeTab === 'PORTFOLIO') {
-      const existingIndex = portfolio.findIndex(a => a.name === finalSymbol);
+      const existingIndex = portfolio.findIndex(a => (a.symbol || a.name) === finalSymbol);
       let updatedData = [...portfolio];
       if (existingIndex >= 0) {
         const existing = updatedData[existingIndex];
@@ -182,13 +184,5 @@ export const usePortfolio = (deps) => {
     setSellModalVisible(false); setSellQuantityInput(''); setDetailModalVisible(false);
   };
 
-  const updateCurrentPrice = () => {
-    if (!currentPriceInput) return;
-    const newPrice = parseFloat(currentPriceInput.toString().replace(',', '.'));
-    if (activeTab === 'PORTFOLIO') { const up = portfolio.map(a => a.id === selectedAssetId ? { ...a, currentPrice: newPrice } : a); setPortfolio(up); saveData('@portfolio', up); } 
-    else { const up = watchlist.map(a => a.id === selectedAssetId ? { ...a, currentPrice: newPrice } : a); setWatchlist(up); saveData('@watchlist', up); }
-    setDetailModalVisible(false); setCurrentPriceInput('');
-  };
-
-  return { addAsset, deleteAsset, sellAsset, updateCurrentPrice };
+  return { addAsset, deleteAsset, sellAsset };
 };

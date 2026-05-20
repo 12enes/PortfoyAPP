@@ -1,7 +1,18 @@
 import React from 'react';
 import { StyleSheet, Animated, View, Text } from 'react-native';
 
-export default function CrosshairLayer({ xAnim, yAnim, opacityAnim, height, color = '#00FFA3', dateText }) {
+export default function CrosshairLayer({ xAnim, yAnim, opacityAnim, height, width, color = '#00FFA3', dateText }) {
+  // Tarih yazısının kenarlardan taşmasını engellemek için dinamik X kaydırması hesaplıyoruz.
+  // Lazer en soldayken (xAnim = 0) yazıyı 45px sağa kaydırarak tam lazerin sağından başlatırız.
+  // Lazer en sağdayken (xAnim = width) yazıyı 45px sola kaydırarak tam lazerin solunda bitiririz.
+  // Orta alanlarda ise kaydırma 0 kalır (ortalı durur).
+  const halfW = 45; 
+  const textTranslateX = xAnim.interpolate({
+    inputRange: [0, halfW, Math.max(halfW, width - halfW), width],
+    outputRange: [halfW, 0, 0, -halfW],
+    extrapolate: 'clamp',
+  });
+
   return (
     <Animated.View style={[StyleSheet.absoluteFill, { opacity: opacityAnim }]} pointerEvents="none">
       
@@ -14,7 +25,9 @@ export default function CrosshairLayer({ xAnim, yAnim, opacityAnim, height, colo
         ]}
       >
         {/* Drone'un taşıdığı Tarih Yazısı */}
-        <Text style={styles.dateText}>{dateText}</Text>
+        <Animated.Text style={[styles.dateText, { transform: [{ translateX: textTranslateX }] }]}>
+          {dateText}
+        </Animated.Text>
         
         {/* Lazer Çizgisi */}
         <View style={[styles.verticalLine, { height: height, backgroundColor: color }]} />

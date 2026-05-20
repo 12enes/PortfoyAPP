@@ -163,8 +163,8 @@ export const AddAssetModal = ({
             renderItem={({item}) => {
               const isAdded = activeTab === 'MARKET' ? (
                 marketTabMode === 'GRID' 
-                  ? watchlist.some(a => a.name === item.symbol) 
-                  : (selectedListId ? customLists.find(l => l.id === selectedListId)?.assetIds.includes(item.symbol) : false)
+                  ? watchlist.some(a => (a.symbol || a.name) === item.symbol) 
+                  : (selectedListId ? (customLists.find(l => l.id === selectedListId)?.assetIds || []).includes(item.symbol) : false)
               ) : false;
 
               return (

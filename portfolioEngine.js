@@ -322,12 +322,24 @@ const PIE_COLORS = [
 ];
 
 // 6. Pasta Grafik Dağılım Hesabı
-export const getPieChartDistribution = (portfolio, usdToTryRate, totalNetCurrentValue, textOthers) => {
+export const getPieChartDistribution = (portfolio, usdToTryRate, totalNetCurrentValue, textOthers, cashBalance = 0) => {
     let rawData = portfolio.map(a => {
         const livePrice = a.currentPrice !== undefined ? a.currentPrice : a.price;
         const pnl = calculateAssetPnL(a, livePrice, usdToTryRate);
         return { ...a, value: pnl.netValue };
     }).filter(a => a.value > 0);
+
+    // Kasadaki nakit parayı da pasta grafiğine ekle
+    if (cashBalance > 0) {
+        rawData.push({
+            id: 'cash-balance-id',
+            symbol: 'TL',
+            name: textOthers || 'Nakit', 
+            type: 'CASH',
+            value: cashBalance,
+            isCash: true
+        });
+    }
 
     rawData.sort((a, b) => b.value - a.value);
     let chartData = rawData;
@@ -335,7 +347,7 @@ export const getPieChartDistribution = (portfolio, usdToTryRate, totalNetCurrent
     return chartData.map((item, index) => ({
         ...item,
         percentage: totalNetCurrentValue > 0 ? (item.value / totalNetCurrentValue) * 100 : 0,
-        color: PIE_COLORS[index % PIE_COLORS.length]
+        color: item.isCash ? '#8A8A9A' : PIE_COLORS[index % PIE_COLORS.length]
     }));
 };
 
@@ -395,7 +407,7 @@ export const getPortfolioPerformanceByTimeframe = (totalNetCurrentValue, chartHi
 };
 
 // 8. PROFESYONEL ZAMAN SERİSİ MOTORU (RECONSTRUCTION ENGINE v4)
-export const calculateAdvancedChartData = (chartHistory, timeFilter, totalNetCurrentValue, totalUnrealizedPnL, unrealizedPnLPct, portfolio = [], usdToTryRate = 1) => {
+export const calculateAdvancedChartData = (chartHistory, timeFilter, totalNetCurrentValue, totalUnrealizedPnL, unrealizedPnLPct, portfolio = [], usdToTryRate = 1, priceHistory = {}) => {
     // 1. ZAMAN DİLİMİ AYARLARI
     const now = Date.now();
     let cutoff = 0;
@@ -436,9 +448,9 @@ export const calculateAdvancedChartData = (chartHistory, timeFilter, totalNetCur
             { timestamp: now, value: totalNetCurrentValue, cost: totalNetCurrentValue - totalUnrealizedPnL }
         ];
     } else {
-        // Canlı noktayı sona ekle (De-clustering: Çok yakın noktaları temizle)
+        // Her zaman en son noktaya anlık canlı durumu ekle (grafiğin ucu boş kalmasın ve zıplamasın)
         const lastSnapshot = baseHistory[baseHistory.length - 1];
-        if (now - lastSnapshot.timestamp > 15 * 60 * 1000) { // 15 dk'dan eskiyse ekle
+        if (now - lastSnapshot.timestamp > 10000) { // En az 10 saniye eski ise ekle
             baseHistory.push({
                 timestamp: now,
                 value: totalNetCurrentValue,
@@ -450,30 +462,52 @@ export const calculateAdvancedChartData = (chartHistory, timeFilter, totalNetCur
 
     // 3. RECONSTRUCTION (YENİDEN İNŞA) MANTIĞI
     // Pro App'lerdeki gibi her noktayı "O andaki miktar * O andaki fiyat" şeklinde doğrula
-    const processedPoints = baseHistory
-        .filter(d => d.timestamp >= cutoff)
-        .map(snap => {
-            const t = snap.timestamp;
-            let reconstructedValue = 0;
-            let reconstructedCost = 0;
+    let pointsInTimeframe = baseHistory.filter(d => d.timestamp >= cutoff);
+    
+    // Eğer zaman dilimi içinde yeterli nokta yoksa, çizim yapabilmek için cutoff öncesindeki son noktayı başa ekle
+    if (pointsInTimeframe.length < 2) {
+        const pointsBeforeCutoff = baseHistory.filter(d => d.timestamp < cutoff);
+        if (pointsBeforeCutoff.length > 0) {
+            const lastBefore = pointsBeforeCutoff[pointsBeforeCutoff.length - 1];
+            pointsInTimeframe = [lastBefore, ...pointsInTimeframe];
+        }
+    }
 
-            portfolio.forEach(asset => {
-                const addedTs = Number(asset.addedDate) || 0;
-                // KRİTİK: Eğer bu tarih (t), varlığın eklenme tarihinden (addedTs) önceyse miktarı 0 kabul et!
-                // 8 saatlik esneklik payı (gece yarısı ve işlem gecikmeleri için)
-                const isOwnedAtT = t >= (addedTs - 8 * 60 * 60 * 1000);
+    const processedPoints = pointsInTimeframe.map(snap => {
+        const t = snap.timestamp;
+        let reconstructedValue = 0;
+        let reconstructedCost = 0;
+
+        portfolio.forEach(asset => {
+            const addedTs = Number(asset.addedDate) || 0;
+            // KRİTİK: Eğer bu tarih (t), varlığın eklenme tarihinden (addedTs) önceyse miktarı 0 kabul et!
+            // 8 saatlik esneklik payı (gece yarısı ve işlem gecikmeleri için)
+            const isOwnedAtT = t >= (addedTs - 8 * 60 * 60 * 1000);
+            
+            if (isOwnedAtT) {
+                const rate = getAssetRateToTry(asset, usdToTryRate);
+                const qty = asset.quantity || 0;
                 
-                if (isOwnedAtT) {
-                    const rate = getAssetRateToTry(asset, usdToTryRate);
-                    const qty = asset.quantity || 0;
-                    
-                    // Fiyat tespiti: O andaki snapshot fiyatı, yoksa alış fiyatı
-                    let priceAtT = (snap.prices && snap.prices[asset.name]) || asset.price || 0;
-                    
-                    reconstructedValue += (priceAtT * qty * rate);
-                    reconstructedCost += (asset.price * qty * rate);
+                // Fiyat tespiti: O andaki snapshot fiyatı, yoksa priceHistory'deki en yakın fiyat, yoksa alış fiyatı
+                let priceAtT = (snap.prices && snap.prices[asset.name]);
+                if (priceAtT === undefined && priceHistory && priceHistory[asset.name]) {
+                    const assetHist = priceHistory[asset.name];
+                    const historyTimestamps = Object.keys(assetHist)
+                        .map(Number)
+                        .filter(ts => ts <= t && assetHist[ts] > 0)
+                        .sort((a, b) => b - a);
+                    if (historyTimestamps.length > 0) {
+                        priceAtT = assetHist[historyTimestamps[0]];
+                    }
                 }
-            });
+                if (priceAtT === undefined) {
+                    priceAtT = asset.price || 0;
+                }
+                
+                reconstructedValue += (priceAtT * qty * rate);
+                reconstructedCost += (asset.price * qty * rate);
+            }
+        });
 
             // Nakit parayı da ekle (Snapshot'ta varsa oradan, yoksa basitçe ekle)
             const cash = (typeof snap.cashBalance === 'number') ? snap.cashBalance : 0;
@@ -525,7 +559,7 @@ export const calculateAdvancedChartData = (chartHistory, timeFilter, totalNetCur
         // Diğer zaman dilimleri için (1W, 1M vb.): Listedeki varlıkların kârlarını topla
         // Bu yöntem, reconstruciton ile tam uyumlu ve tutarlıdır.
         portfolio.forEach(asset => {
-            const pnl = calculateAssetPnLForTimeframe(asset, timeFilter, usdToTryRate, null); // History null çünkü yeni varlık odaklıyız
+            const pnl = calculateAssetPnLForTimeframe(asset, timeFilter, usdToTryRate, priceHistory?.[asset.name] || null);
             finalAmount += pnl.amount;
         });
         

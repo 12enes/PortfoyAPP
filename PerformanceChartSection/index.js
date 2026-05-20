@@ -138,6 +138,7 @@ export default function PerformanceChartSection({
               yAnim={crosshairY} 
               opacityAnim={crosshairOpacity} 
               height={dimensions.height} 
+              width={dimensions.width}
               color={liveChange >= 0 ? '#00FFA3' : '#FF4D4D'} 
               dateText={activePoint ? formatDate(activePoint.date, locale) : ''}
             />

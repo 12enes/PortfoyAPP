@@ -1,5 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Alert, Animated } from 'react-native';
+import { portfolioStorage } from './services/portfolioStorage';
+import { 
+  buildPriceHistoryFromChart, 
+  fillMissingDays, 
+  getTimeframeLabel, 
+  getFilteredHistory,
+  cleanChartHistory 
+} from './utils/portfolioUtils';
 
 export const usePortfolioData = (deps) => {
   const {
@@ -10,68 +18,7 @@ export const usePortfolioData = (deps) => {
     t, MarketService, migrateType
   } = deps;
 
-  const saveData = async (key, data) => { 
-    await AsyncStorage.setItem(key, JSON.stringify(data)); 
-  };
-
-  const buildPriceHistoryFromChart = (historyData) => {
-    const derived = {};
-    (historyData || []).forEach(point => {
-      const timestamp = point.timestamp;
-      if (!timestamp || !point.prices) return;
-
-      Object.entries(point.prices).forEach(([symbol, price]) => {
-        const numericPrice = Number(price);
-        if (!Number.isFinite(numericPrice) || numericPrice <= 0) return;
-        derived[symbol] = {
-          ...(derived[symbol] || {}),
-          [timestamp]: numericPrice
-        };
-      });
-    });
-    return derived;
-  };
-
-  const fillMissingDays = async (history, portfolioData) => {
-    if (!history || history.length === 0) return history;
-    
-    const lastSnap = history[history.length - 1];
-    const lastDate = new Date(lastSnap.timestamp);
-    const today = new Date();
-    
-    // Gün farkını hesapla
-    lastDate.setHours(0, 0, 0, 0);
-    today.setHours(0, 0, 0, 0);
-    const dayDiff = Math.floor((today - lastDate) / (24 * 60 * 60 * 1000));
-    
-    // 1 günden az fark varsa doldurma
-    if (dayDiff <= 1) return history;
-    
-    // Maksimum 30 gün doldur
-    const daysToFill = Math.min(dayDiff - 1, 30);
-    const newHistory = [...history];
-    
-    for (let i = 1; i <= daysToFill; i++) {
-      const fillDate = new Date(lastDate);
-      fillDate.setDate(fillDate.getDate() + i);
-      
-      // Hafta sonu atla (0=Pazar, 6=Cumartesi)
-      if (fillDate.getDay() === 0 || fillDate.getDay() === 6) continue;
-      
-      // O günün timestamp'i (öğlen 12:00)
-      fillDate.setHours(12, 0, 0, 0);
-      
-      newHistory.push({
-        timestamp: fillDate.getTime(),
-        date: fillDate.toISOString().split('T')[0],
-        value: lastSnap.value,
-        cost: lastSnap.cost,
-        prices: lastSnap.prices
-      });
-    }
-    
-    return newHistory.sort((a, b) => a.timestamp - b.timestamp);
-  };
+  const saveData = portfolioStorage.saveData;
 
   const refreshPortfolioPrices = async (portfolioData, force = false) => {
     const data = portfolioData || portfolio;
@@ -93,7 +40,10 @@ export const usePortfolioData = (deps) => {
             ...a,
             currentPrice: fresh.currentPrice,
             changePercent: fresh.changePercent || 0,
-            previousClose: fresh.previousClose ?? a.previousClose
+            previousClose: fresh.previousClose ?? a.previousClose,
+            session: fresh.session || 'REGULAR',
+            extendedPrice: fresh.extendedPrice || null,
+            extendedChangePct: fresh.extendedChangePct !== undefined ? fresh.extendedChangePct : null
           };
         }
         return a;
@@ -132,40 +82,10 @@ export const usePortfolioData = (deps) => {
       prices: currentAssetPrices
     };
 
-    currentHistory.push(newData); 
-
-    // --- AKILLI VERİ YÖNETİMİ (CLEANUP) ---
-    const oneDayAgo = now - 24 * 60 * 60 * 1000;
-    const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
-
-    const hourlyMap = new Map();
-    const dailyMap = new Map();
-    const recentData = [];
-
-    currentHistory.forEach(snap => {
-      const ts = snap.timestamp;
-      if (ts >= oneDayAgo) {
-        // Son 24 saat: Tüm kayıtları koru
-        recentData.push(snap);
-      } else if (ts >= oneWeekAgo) {
-        // 1 gün - 1 hafta arası: Saatte bir tut (İlk kaydı koru)
-        const hourKey = new Date(ts).toISOString().slice(0, 13); // "YYYY-MM-DDTHH"
-        if (!hourlyMap.has(hourKey)) hourlyMap.set(hourKey, snap);
-      } else {
-        // 1 haftadan eski: Günde bir tut (Son kaydı koru)
-        const dayKey = new Date(ts).toISOString().split('T')[0]; // "YYYY-MM-DD"
-        dailyMap.set(dayKey, snap);
-      }
-    });
-
-    const finalHistory = [
-      ...Array.from(dailyMap.values()),
-      ...Array.from(hourlyMap.values()),
-      ...recentData
-    ].sort((a, b) => a.timestamp - b.timestamp);
+    const finalHistory = cleanChartHistory([...currentHistory, newData]);
 
     setChartHistory(finalHistory);
-    AsyncStorage.setItem('@chart_history', JSON.stringify(finalHistory));
+    saveData('@chart_history', finalHistory);
 
     // NOT: priceHistory artık burada güncellenmez.
     // priceHistory yalnızca fetchHistoricalPrices (Yahoo/Binance API) tarafından doldurulur.
@@ -196,29 +116,9 @@ export const usePortfolioData = (deps) => {
     });
   };
 
-  const getTimeframeLabel = () => {
-    if (lang === 'tr') { switch(timeFilter) { case '1D': return 'Son 24 Saat'; case '1W': return 'Son 1 Hafta'; case '1M': return 'Son 1 Ay'; case '3M': return 'Son 3 Ay'; case '6M': return 'Son 6 Ay'; case 'YTD': return 'Yılbaşından Beri'; case '1Y': return 'Son 1 Yıl'; case 'ALL': return 'Tüm Zamanlar'; default: return ''; } } 
-    else { switch(timeFilter) { case '1D': return 'Last 24 Hours'; case '1W': return 'Last 1 Week'; case '1M': return 'Last 1 Month'; case '3M': return 'Last 3 Months'; case '6M': return 'Last 6 Months'; case 'YTD': return 'Year to Date'; case '1Y': return 'Last 1 Year'; case 'ALL': return 'All Time'; default: return ''; } }
-  };
+  const getTimeframeLabelLocal = () => getTimeframeLabel(timeFilter, lang);
 
-  const getFilteredHistory = () => {
-    const now = Date.now(); let cutoff = 0;
-    switch (timeFilter) { 
-      case '1D': cutoff = now - 24 * 60 * 60 * 1000; break; 
-      case '1W': cutoff = now - 7 * 24 * 60 * 60 * 1000; break; 
-      case '1M': cutoff = now - 30 * 24 * 60 * 60 * 1000; break; 
-      case '3M': cutoff = now - 90 * 24 * 60 * 60 * 1000; break; 
-      case '6M': cutoff = now - 180 * 24 * 60 * 60 * 1000; break; 
-      case 'YTD': cutoff = new Date(new Date().getFullYear(), 0, 1).getTime(); break; 
-      case '1Y': cutoff = now - 365 * 24 * 60 * 60 * 1000; break; 
-      case 'ALL': default: cutoff = 0; break; 
-    }
-    return history.filter(tx => {
-      if (tx.netProfit === undefined || tx.netProfit === null || tx.netProfit === 0) return false;
-      const txTime = tx.timestamp || Date.parse(tx.date) || 0;
-      return txTime >= cutoff;
-    });
-  };
+  const getFilteredHistoryLocal = () => getFilteredHistory(history, timeFilter);
 
   const loadData = async () => {
     try {
@@ -233,6 +133,13 @@ export const usePortfolioData = (deps) => {
       const sTheme = await AsyncStorage.getItem('@theme'); 
       const sLists = await AsyncStorage.getItem('@custom_lists');
 
+      // priceHistory: Sadece fetchHistoricalPrices'tan gelen temiz veriyi yükle
+      let parsedPriceHist = {};
+      if (sPriceHist) {
+        parsedPriceHist = JSON.parse(sPriceHist);
+        setPriceHistory(parsedPriceHist);
+      }
+
       // ONE-TIME MİGRASYON v2: Eski sahte chartHistory ve priceHistory verilerini temizle
       const migrationDone = await AsyncStorage.getItem('@migration_v2_clean_mock');
       if (!migrationDone) {
@@ -241,22 +148,18 @@ export const usePortfolioData = (deps) => {
         await AsyncStorage.setItem('@migration_v2_clean_mock', 'true');
         setChartHistory([]);
         setPriceHistory({});
+        parsedPriceHist = {};
       } else {
         let parsedChart = sChart ? JSON.parse(sChart) : [];
         const parsedPort = sPort ? JSON.parse(sPort) : [];
         
-        // EKSİK GÜN DOLDURMA MEKANİZMASI
-        const filledHistory = await fillMissingDays(parsedChart, parsedPort);
+        // EKSİK GÜN DOLDURMA MEKANİZMASI (Canlı Fiyat Geçmişi ve Kur ile Güçlendirildi)
+        const filledHistory = fillMissingDays(parsedChart, parsedPort, parsedPriceHist, deps.usdToTryRate);
         parsedChart = filledHistory;
         
         setChartHistory(parsedChart);
         if (sChart !== JSON.stringify(parsedChart)) {
           AsyncStorage.setItem('@chart_history', JSON.stringify(parsedChart));
-        }
-
-        // priceHistory: Sadece fetchHistoricalPrices'tan gelen temiz veriyi yükle
-        if (sPriceHist) {
-          setPriceHistory(JSON.parse(sPriceHist));
         }
       }
 
@@ -280,8 +183,8 @@ export const usePortfolioData = (deps) => {
       if (sLists) setCustomLists(JSON.parse(sLists));
       
       try {
-        const rates = await MarketService._fetchForexRates();
-        if (rates?.TRY) setUsdToTryRate(rates.TRY);
+        const forexData = await MarketService._fetchForexRates();
+        if (forexData?.rates?.TRY) setUsdToTryRate(forexData.rates.TRY);
       } catch (e) { }
       
       if (sPort || sWatch) {
@@ -289,6 +192,12 @@ export const usePortfolioData = (deps) => {
         const parsedWatch = sWatch ? JSON.parse(sWatch).map(item => ({ ...item, type: migrateType(item.type) })) : [];
 
         if (parsedPort.length > 0) refreshPortfolioPrices(parsedPort);
+        if (parsedWatch.length > 0) {
+          MarketService.fetchMultiple(parsedWatch).then(updated => {
+            setWatchlist(updated);
+            saveData('@watchlist', updated);
+          }).catch(() => {});
+        }
         
         // BUGÜNÜN VERİSİ YOKSA GÜN İÇİ GEÇMİŞİ ÇEK
         const parsedChart = sChart ? JSON.parse(sChart) : [];
@@ -330,6 +239,13 @@ export const usePortfolioData = (deps) => {
           if (changed) {
             setPriceHistory(updatedHistory);
             saveData('@price_history', updatedHistory);
+
+            // Yeni fiyat geçmişi verileri çekildiğinde grafik veritabanını yüksek sadakatli fiyatlarla güncelle!
+            setChartHistory(prevChart => {
+              const freshChart = fillMissingDays(prevChart, parsedPort, updatedHistory, deps.usdToTryRate);
+              saveData('@chart_history', freshChart);
+              return freshChart;
+            });
           }
         };
         fetchAllHistory();
@@ -480,10 +396,19 @@ export const usePortfolioData = (deps) => {
     }
   };
 
-  const saveLists = async (data) => { 
-    setCustomLists(data); 
-    await AsyncStorage.setItem('@custom_lists', JSON.stringify(data)); 
+  const saveLists = async (data) => {
+    setCustomLists(data);
+    await saveData('@custom_lists', data);
   };
 
-  return { saveData, loadData, saveLists, refreshPortfolioPrices, saveDailySnapshot, onRefreshMarket, getTimeframeLabel, getFilteredHistory };
+  return { 
+    saveData, 
+    loadData, 
+    saveLists, 
+    refreshPortfolioPrices, 
+    saveDailySnapshot, 
+    onRefreshMarket, 
+    getTimeframeLabel: getTimeframeLabelLocal, 
+    getFilteredHistory: getFilteredHistoryLocal 
+  };
 };
